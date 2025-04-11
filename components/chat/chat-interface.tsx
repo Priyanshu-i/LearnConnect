@@ -31,6 +31,7 @@ import {
   ChevronRight,
   ChevronLeft,
   User,
+  Info,
 } from "lucide-react"
 import { ref, onValue, push, set, update, remove, query, orderByChild, get } from "firebase/database"
 import { collection, getDocs, doc, getDoc, setDoc, updateDoc } from "firebase/firestore"
@@ -42,6 +43,8 @@ import { MessageActions } from "./message-actions"
 import { ChatNotifications } from "./chat-notifications"
 import { useRouter } from "next/navigation"
 import { UserProfileEditor } from "./use-profile-editor"
+import { GroupSettingsModal } from "./group-settings-modal"
+import { DateSeparator } from "./date-separator"
 
 export function ChatInterface() {
   const [activeTab, setActiveTab] = useState<string>("chats")
@@ -57,6 +60,7 @@ export function ChatInterface() {
   const [chatFolders, setChatFolders] = useState<ChatFolder[]>([])
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null)
   const [chatGroups, setChatGroups] = useState<ChatGroup[]>([])
+  const [selectedGroup, setSelectedGroup] = useState<ChatGroup | null>(null)
   const [newGroupName, setNewGroupName] = useState("")
   const [newFolderName, setNewFolderName] = useState("")
   const [selectedGroupMembers, setSelectedGroupMembers] = useState<string[]>([])
@@ -67,6 +71,7 @@ export function ChatInterface() {
   const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([])
   const [userSearch, setUserSearch] = useState("")
   const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [isGroupSettingsOpen, setIsGroupSettingsOpen] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { user } = useAuth()
@@ -180,9 +185,11 @@ export function ChatInterface() {
                 groupsList.push({
                   id: key,
                   name: group.name,
+                  description: group.description || "",
                   members: group.members || [],
                   createdBy: group.createdBy,
                   createdAt: group.createdAt,
+                  blockedMembers: group.blockedMembers || [],
                 })
               }
             })
@@ -243,6 +250,12 @@ export function ChatInterface() {
       messagesRef = ref(rtdb, `chats/${selectedChat}/messages`)
     } else {
       messagesRef = ref(rtdb, `groupChats/${selectedChat}/messages`)
+
+      // Set selected group
+      const group = chatGroups.find((g) => g.id === selectedChat)
+      if (group) {
+        setSelectedGroup(group)
+      }
     }
 
     const messagesQuery = query(messagesRef, orderByChild("timestamp"))
@@ -289,7 +302,7 @@ export function ChatInterface() {
       unsubscribe()
       pinnedUnsubscribe()
     }
-  }, [selectedChat, selectedChatType, user])
+  }, [selectedChat, selectedChatType, user, chatGroups])
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -314,6 +327,18 @@ export function ChatInterface() {
     e.preventDefault()
 
     if (!user || !selectedChat || !newMessage.trim() || !userProfile) return
+
+    // Check if user is blocked in group
+    if (selectedChatType === "group" && selectedGroup) {
+      if (selectedGroup.blockedMembers && selectedGroup.blockedMembers.includes(user.uid)) {
+        toast({
+          title: "Cannot send message",
+          description: "You have been blocked from sending messages in this group",
+          variant: "destructive",
+        })
+        return
+      }
+    }
 
     try {
       let messagesRef
@@ -386,6 +411,16 @@ export function ChatInterface() {
           }
         }
       }
+
+      // Add to user activity
+      const activityRef = ref(rtdb, `users/${user.uid}/activity/messages/${Date.now()}`)
+      await set(activityRef, {
+        type: "message",
+        chatId: selectedChat,
+        chatType: selectedChatType,
+        content: newMessage,
+        timestamp: Date.now(),
+      })
 
       setNewMessage("")
       setReplyingTo(null)
@@ -628,9 +663,11 @@ export function ChatInterface() {
 
       await set(newGroupRef, {
         name: newGroupName,
+        description: "",
         members: allMembers,
         createdBy: user.uid,
         createdAt: Date.now(),
+        blockedMembers: [],
       })
 
       // Create group chat room
@@ -822,6 +859,10 @@ export function ChatInterface() {
     setIsSearching(true)
   }
 
+  const handleViewUserProfile = (userId: string) => {
+    router.push(`/profile/${userId}`)
+  }
+
   const getFilteredMessages = () => {
     if (!isSearching || !searchQuery.trim()) {
       return messages
@@ -839,6 +880,21 @@ export function ChatInterface() {
     })
 
     return count
+  }
+
+  // Group messages by date
+  const groupMessagesByDate = (messages: ChatMessage[]) => {
+    const groups: { [date: string]: ChatMessage[] } = {}
+
+    messages.forEach((message) => {
+      const date = new Date(message.timestamp).toDateString()
+      if (!groups[date]) {
+        groups[date] = []
+      }
+      groups[date].push(message)
+    })
+
+    return groups
   }
 
   const renderChatList = () => {
@@ -1046,7 +1102,7 @@ export function ChatInterface() {
 
       return (
         <div className="flex items-center justify-between p-3 border-b">
-          <div className="flex items-center">
+          <div className="flex items-center cursor-pointer" onClick={() => handleViewUserProfile(otherUser.id)}>
             <Avatar className="h-10 w-10 mr-3">
               <AvatarImage src={otherUser.photoURL || ""} />
               <AvatarFallback>{otherUser.displayName.charAt(0)}</AvatarFallback>
@@ -1123,7 +1179,7 @@ export function ChatInterface() {
 
       return (
         <div className="flex items-center justify-between p-3 border-b">
-          <div className="flex items-center">
+          <div className="flex items-center cursor-pointer" onClick={() => setIsGroupSettingsOpen(true)}>
             <Avatar className="h-10 w-10 mr-3">
               <AvatarFallback>{group.name.charAt(0)}</AvatarFallback>
             </Avatar>
@@ -1142,6 +1198,17 @@ export function ChatInterface() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Search in chat</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" onClick={() => setIsGroupSettingsOpen(true)}>
+                    <Info className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Group info</TooltipContent>
               </Tooltip>
             </TooltipProvider>
 
@@ -1230,10 +1297,18 @@ export function ChatInterface() {
         <div className={`flex ${isCurrentUser ? "justify-end" : "justify-start"}`}>
           <div className={`flex max-w-[80%] ${isCurrentUser ? "flex-row-reverse" : ""}`}>
             {!isCurrentUser && (
-              <Avatar className="h-8 w-8 mx-2 mt-1">
-                <AvatarImage src={message.senderPhotoURL || ""} />
-                <AvatarFallback>{message.senderName?.charAt(0) || "U"}</AvatarFallback>
-              </Avatar>
+              <div
+                className="cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleViewUserProfile(message.senderId)
+                }}
+              >
+                <Avatar className="h-8 w-8 mx-2 mt-1">
+                  <AvatarImage src={message.senderPhotoURL || ""} />
+                  <AvatarFallback>{message.senderName?.charAt(0) || "U"}</AvatarFallback>
+                </Avatar>
+              </div>
             )}
 
             <div>
@@ -1254,7 +1329,17 @@ export function ChatInterface() {
                   isCurrentUser ? "bg-purple-500 text-white" : "bg-accent"
                 } ${isPinned ? "border-2 border-yellow-500" : ""}`}
               >
-                {!isCurrentUser && <p className="text-xs font-medium mb-1">{message.senderName}</p>}
+                {!isCurrentUser && (
+                  <p
+                    className="text-xs font-medium mb-1 cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleViewUserProfile(message.senderId)
+                    }}
+                  >
+                    {message.senderName}
+                  </p>
+                )}
                 <p>{message.content}</p>
                 <p className="text-xs opacity-70 mt-1 text-right">
                   {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -1308,6 +1393,23 @@ export function ChatInterface() {
     )
   }
 
+  // Render messages with date separators
+  const renderMessagesWithDateSeparators = () => {
+    const filteredMessages = getFilteredMessages()
+    const messagesByDate = groupMessagesByDate(filteredMessages)
+
+    return Object.entries(messagesByDate).map(([dateStr, messages]) => {
+      const date = new Date(dateStr)
+
+      return (
+        <div key={dateStr}>
+          <DateSeparator date={date} />
+          {messages.map((message) => renderMessage(message))}
+        </div>
+      )
+    })
+  }
+
   // Mobile layout
   if (isMobile) {
     return (
@@ -1337,7 +1439,7 @@ export function ChatInterface() {
             )}
 
             <ScrollArea className="flex-1 p-4">
-              {getFilteredMessages().map((message) => renderMessage(message))}
+              {renderMessagesWithDateSeparators()}
               <div ref={messagesEndRef} />
             </ScrollArea>
 
@@ -1524,6 +1626,20 @@ export function ChatInterface() {
             {userProfile && <UserProfileEditor profile={userProfile} onSave={handleUpdateProfile} />}
           </DialogContent>
         </Dialog>
+
+        {/* Group Settings Modal */}
+        <GroupSettingsModal
+          group={selectedGroup}
+          isOpen={isGroupSettingsOpen}
+          onClose={() => setIsGroupSettingsOpen(false)}
+          onGroupUpdated={() => {
+            // Refresh group data
+            const updatedGroup = chatGroups.find((g) => g.id === selectedChat)
+            if (updatedGroup) {
+              setSelectedGroup(updatedGroup)
+            }
+          }}
+        />
       </div>
     )
   }
@@ -1697,7 +1813,7 @@ export function ChatInterface() {
             )}
 
             <ScrollArea className="flex-1 p-4">
-              {getFilteredMessages().map((message) => renderMessage(message))}
+              {renderMessagesWithDateSeparators()}
               <div ref={messagesEndRef} />
             </ScrollArea>
 
@@ -1748,6 +1864,20 @@ export function ChatInterface() {
           {userProfile && <UserProfileEditor profile={userProfile} onSave={handleUpdateProfile} />}
         </DialogContent>
       </Dialog>
+
+      {/* Group Settings Modal */}
+      <GroupSettingsModal
+        group={selectedGroup}
+        isOpen={isGroupSettingsOpen}
+        onClose={() => setIsGroupSettingsOpen(false)}
+        onGroupUpdated={() => {
+          // Refresh group data
+          const updatedGroup = chatGroups.find((g) => g.id === selectedChat)
+          if (updatedGroup) {
+            setSelectedGroup(updatedGroup)
+          }
+        }}
+      />
     </div>
   )
 }

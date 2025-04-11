@@ -8,6 +8,7 @@ export interface Post {
   createdAt: number
   likes: string[]
   comments?: Comment[]
+  imageURL?: string
 }
 
 export interface Comment {
@@ -51,9 +52,11 @@ export interface ChatRoom {
 export interface ChatGroup {
   id: string
   name: string
+  description: string
   members: string[]
   createdBy: string
   createdAt: number
+  blockedMembers: string[]
 }
 
 export interface ChatFolder {
@@ -68,4 +71,17 @@ export interface UserProfile {
   email: string
   photoURL?: string
   createdAt: number
+  bio?: string
+  location?: string
+  website?: string
+  followers?: string[]
+  following?: string[]
+}
+
+export interface UserActivity {
+  id: string
+  type: "post" | "comment" | "like" | "message"
+  targetId: string
+  content?: string
+  timestamp: number
 }
