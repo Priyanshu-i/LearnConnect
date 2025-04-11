@@ -58,11 +58,11 @@ export default function CreatePost() {
       // Create a FormData object to send the image
       const formData = new FormData()
       formData.append("file", file)
-      formData.append("upload_preset", "learnconnect_uploads") // Replace with your Cloudinary upload preset
+      formData.append("upload_preset", `${process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET}`) // Replace with your Cloudinary upload preset
 
       // Upload to Cloudinary
       const response = await fetch(
-        `https://api.cloudinary.com/v1_1/your-cloud-name/image/upload`, // Replace with your Cloudinary cloud name
+        `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`, // Replace with your Cloudinary cloud name
         {
           method: "POST",
           body: formData,
