@@ -1,6 +1,12 @@
 "use client"
 
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Send, Pin, Reply, X, User, MessageSquare, ChevronLeft } from "lucide-react"
 
 import type React from "react"
 
@@ -8,33 +14,12 @@ import { useEffect, useState, useRef } from "react"
 import { useAuth } from "@/lib/hooks/use-auth"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import {
-  MoreHorizontal,
-  Search,
-  Send,
-  Pin,
-  Reply,
-  Trash,
-  X,
-  Download,
-  Folder,
-  Users,
-  MessageSquare,
-  ChevronRight,
-  ChevronLeft,
-  User,
-  Info,
-} from "lucide-react"
+import { MoreHorizontal, Search, Trash, Download, Folder, Users, ChevronRight, Info } from "lucide-react"
 import { ref, onValue, push, set, update, remove, query, orderByChild, get } from "firebase/database"
-import { collection, getDocs, doc, getDoc, setDoc, updateDoc } from "firebase/firestore"
+import { collection, getDocs, doc, getDoc, setDoc, updateDoc, addDoc } from "firebase/firestore"
 import { rtdb, db } from "@/lib/firebase"
 import type { ChatMessage, ChatFolder, ChatGroup, UserProfile } from "@/lib/types"
 import { useToast } from "@/hooks/use-toast"
@@ -45,6 +30,7 @@ import { useRouter } from "next/navigation"
 import { UserProfileEditor } from "./use-profile-editor"
 import { GroupSettingsModal } from "./group-settings-modal"
 import { DateSeparator } from "./date-separator"
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu"
 
 export function ChatInterface() {
   const [activeTab, setActiveTab] = useState<string>("chats")
@@ -73,6 +59,10 @@ export function ChatInterface() {
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [isGroupSettingsOpen, setIsGroupSettingsOpen] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  const [isEditingFolder, setIsEditingFolder] = useState(false)
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
+  const [editingFolderName, setEditingFolderName] = useState("")
+  const [editingFolderContacts, setEditingFolderContacts] = useState<string[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { user } = useAuth()
   const { toast } = useToast()
@@ -88,6 +78,7 @@ export function ChatInterface() {
 
     async function fetchUserProfile() {
       try {
+        if (!user) return;
         const userDocRef = doc(db, "users", user.uid)
         const userDoc = await getDoc(userDocRef)
 
@@ -96,6 +87,7 @@ export function ChatInterface() {
         } else {
           // Create user profile if it doesn't exist
           const newUserProfile: UserProfile = {
+            
             id: user.uid,
             displayName: user.displayName || "Anonymous User",
             email: user.email || "",
@@ -129,6 +121,7 @@ export function ChatInterface() {
 
         usersSnapshot.forEach((doc) => {
           const userData = doc.data() as UserProfile
+          if (!user) return;
           if (doc.id !== user.uid) {
             usersList.push({
               id: doc.id,
@@ -136,6 +129,8 @@ export function ChatInterface() {
               email: userData.email || "",
               photoURL: userData.photoURL || "",
               createdAt: userData.createdAt || Date.now(),
+              following: userData.following || [],
+              followers: userData.followers || [],
             })
           }
         })
@@ -150,6 +145,7 @@ export function ChatInterface() {
     // Fetch chat folders
     async function fetchChatFolders() {
       try {
+        if (!user) return;
         const foldersRef = ref(rtdb, `users/${user.uid}/chatFolders`)
         onValue(foldersRef, (snapshot) => {
           const foldersData = snapshot.val()
@@ -181,6 +177,7 @@ export function ChatInterface() {
             Object.keys(groupsData).forEach((key) => {
               const group = groupsData[key]
               // Only include groups where the current user is a member
+              if (!user) return;
               if (group.members && group.members.includes(user.uid)) {
                 groupsList.push({
                   id: key,
@@ -207,6 +204,7 @@ export function ChatInterface() {
     // Fetch unread messages
     async function fetchUnreadMessages() {
       try {
+        if (!user) return;
         const unreadRef = ref(rtdb, `users/${user.uid}/unreadMessages`)
         onValue(unreadRef, (snapshot) => {
           const unreadData = snapshot.val()
@@ -340,6 +338,33 @@ export function ChatInterface() {
       }
     }
 
+    // Check if users follow each other for direct messages
+    if (selectedChatType === "direct") {
+      const otherUserId = selectedChat.split("_").find((id) => id !== user.uid)
+      if (otherUserId) {
+        const otherUserDoc = await getDoc(doc(db, "users", otherUserId))
+        const currentUserDoc = await getDoc(doc(db, "users", user.uid))
+
+        if (otherUserDoc.exists() && currentUserDoc.exists()) {
+          const otherUserData = otherUserDoc.data() as UserProfile
+          const currentUserData = currentUserDoc.data() as UserProfile
+
+          const mutualFollow =
+            (otherUserData.followers?.includes(user.uid) || false) &&
+            (currentUserData.followers?.includes(otherUserId) || false)
+
+          if (!mutualFollow) {
+            toast({
+              title: "Cannot send message",
+              description: "You can only message users who follow you and whom you follow",
+              variant: "destructive",
+            })
+            return
+          }
+        }
+      }
+    }
+
     try {
       let messagesRef
       if (selectedChatType === "direct") {
@@ -413,10 +438,10 @@ export function ChatInterface() {
       }
 
       // Add to user activity
-      const activityRef = ref(rtdb, `users/${user.uid}/activity/messages/${Date.now()}`)
-      await set(activityRef, {
+      const activityRef = collection(db, "users", user.uid, "activity")
+      await addDoc(activityRef, {
         type: "message",
-        chatId: selectedChat,
+        targetId: selectedChat,
         chatType: selectedChatType,
         content: newMessage,
         timestamp: Date.now(),
@@ -822,6 +847,42 @@ export function ChatInterface() {
     }
   }
 
+  const handleEditFolder = (folder: ChatFolder) => {
+    setEditingFolderId(folder.id)
+    setEditingFolderName(folder.name)
+    setEditingFolderContacts(folder.chatIds || [])
+    setIsEditingFolder(true)
+  }
+
+  const handleSaveEditedFolder = async () => {
+    if (!user || !editingFolderId || !editingFolderName.trim()) return
+
+    try {
+      const folderRef = ref(rtdb, `users/${user.uid}/chatFolders/${editingFolderId}`)
+      await update(folderRef, {
+        name: editingFolderName,
+        chatIds: editingFolderContacts,
+      })
+
+      toast({
+        title: "Folder updated",
+        description: "The folder has been updated successfully.",
+      })
+
+      setIsEditingFolder(false)
+      setEditingFolderId(null)
+      setEditingFolderName("")
+      setEditingFolderContacts([])
+    } catch (error) {
+      console.error("Error updating folder:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update folder. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleSelectChat = (chatId: string, type: "direct" | "group") => {
     setSelectedChat(chatId)
     setSelectedChatType(type)
@@ -861,6 +922,146 @@ export function ChatInterface() {
 
   const handleViewUserProfile = (userId: string) => {
     router.push(`/profile/${userId}`)
+  }
+
+  const handleDeleteChat = async (chatId: string, type: "direct" | "group") => {
+    if (!user) return
+
+    try {
+      if (type === "direct") {
+        // Clear direct chat messages
+        const chatMessagesRef = ref(rtdb, `chats/${chatId}/messages`)
+        await set(chatMessagesRef, null)
+
+        // Remove from unread messages
+        const unreadRef = ref(rtdb, `users/${user.uid}/unreadMessages/${chatId}`)
+        await remove(unreadRef)
+
+        // Remove from all folders
+        for (const folder of chatFolders) {
+          if (folder.chatIds.includes(chatId)) {
+            await handleRemoveChatFromFolder(chatId, folder.id)
+          }
+        }
+
+        toast({
+          title: "Chat deleted",
+          description: "The chat has been deleted.",
+        })
+
+        if (selectedChat === chatId) {
+          setSelectedChat(null)
+        }
+      } else if (type === "group") {
+        // Leave group
+        const group = chatGroups.find((g) => g.id === chatId)
+        if (!group) return
+
+        // If user is the creator and the only member, delete the group
+        if (group.createdBy === user.uid && group.members.length === 1) {
+          const groupRef = ref(rtdb, `chatGroups/${chatId}`)
+          await remove(groupRef)
+
+          const groupChatRef = ref(rtdb, `groupChats/${chatId}`)
+          await remove(groupChatRef)
+
+          toast({
+            title: "Group deleted",
+            description: "The group has been deleted as you were the only member.",
+          })
+        } else {
+          // Otherwise, just remove the user from the group
+          const groupRef = ref(rtdb, `chatGroups/${chatId}`)
+          const updatedMembers = group.members.filter((id) => id !== user.uid)
+          await update(groupRef, {
+            members: updatedMembers,
+          })
+
+          // Add system message about user leaving
+          const messagesRef = ref(rtdb, `groupChats/${chatId}/messages`)
+          const newMessageRef = push(messagesRef)
+          await set(newMessageRef, {
+            content: `${userProfile?.displayName || "A user"} left the group`,
+            senderId: "system",
+            senderName: "System",
+            timestamp: Date.now(),
+          })
+
+          toast({
+            title: "Left group",
+            description: "You have left the group.",
+          })
+        }
+
+        // Remove from unread messages
+        const unreadRef = ref(rtdb, `users/${user.uid}/unreadGroupMessages/${chatId}`)
+        await remove(unreadRef)
+
+        if (selectedChat === chatId) {
+          setSelectedChat(null)
+        }
+      }
+    } catch (error) {
+      console.error("Error deleting chat:", error)
+      toast({
+        title: "Error",
+        description: "Failed to delete chat. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleRemoveUserFromGroup = async (groupId: string, userId: string) => {
+    if (!user) return
+
+    try {
+      const group = chatGroups.find((g) => g.id === groupId)
+      if (!group) return
+
+      // Check if current user is admin
+      if (group.createdBy !== user.uid) {
+        toast({
+          title: "Permission denied",
+          description: "Only the group creator can remove members.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Remove user from group
+      const groupRef = ref(rtdb, `chatGroups/${groupId}`)
+      const updatedMembers = group.members.filter((id) => id !== userId)
+      await update(groupRef, {
+        members: updatedMembers,
+      })
+
+      // Add system message about user being removed
+      const removedUser = users.find((u) => u.id === userId)
+      const messagesRef = ref(rtdb, `groupChats/${groupId}/messages`)
+      const newMessageRef = push(messagesRef)
+      await set(newMessageRef, {
+        content: `${removedUser?.displayName || "A user"} was removed from the group`,
+        senderId: "system",
+        senderName: "System",
+        timestamp: Date.now(),
+      })
+
+      toast({
+        title: "User removed",
+        description: "The user has been removed from the group.",
+      })
+    } catch (error) {
+      console.error("Error removing user from group:", error)
+      toast({
+        title: "Error",
+        description: "Failed to remove user from group. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleViewPostFromReply = (postId: string) => {
+    router.push(`/post/${postId}`)
   }
 
   const getFilteredMessages = () => {
@@ -908,9 +1109,14 @@ export function ChatInterface() {
           <div className="space-y-1">
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-medium">{folder.name}</h3>
-              <Button variant="ghost" size="sm" onClick={() => setActiveFolderId(null)}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="sm" onClick={() => handleEditFolder(folder)}>
+                  Edit
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setActiveFolderId(null)}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
             {folder.chatIds.map((chatId) => {
@@ -922,28 +1128,37 @@ export function ChatInterface() {
                 if (!group) return null
 
                 return (
-                  <div
-                    key={chatId}
-                    className={`flex items-center p-2 rounded-lg cursor-pointer hover:bg-accent ${
-                      selectedChat === chatId ? "bg-accent" : ""
-                    }`}
-                    onClick={() => handleSelectChat(chatId, "group")}
-                  >
-                    <Avatar className="h-10 w-10 mr-3">
-                      <AvatarFallback>{group.name.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <p className="font-medium truncate">{group.name}</p>
-                        {unreadChats[chatId] && (
-                          <Badge variant="default" className="ml-2">
-                            {unreadChats[chatId]}
-                          </Badge>
-                        )}
+                  <ContextMenu key={chatId}>
+                    <ContextMenuTrigger>
+                      <div
+                        className={`flex items-center p-2 rounded-lg cursor-pointer hover:bg-accent ${
+                          selectedChat === chatId ? "bg-accent" : ""
+                        }`}
+                        onClick={() => handleSelectChat(chatId, "group")}
+                      >
+                        <Avatar className="h-10 w-10 mr-3">
+                          <AvatarFallback>{group.name.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <p className="font-medium truncate">{group.name}</p>
+                            {unreadChats[chatId] && (
+                              <Badge variant="default" className="ml-2">
+                                {unreadChats[chatId]}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground truncate">{group.members.length} members</p>
+                        </div>
                       </div>
-                      <p className="text-sm text-muted-foreground truncate">{group.members.length} members</p>
-                    </div>
-                  </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem onClick={() => handleRemoveChatFromFolder(chatId, folder.id)}>
+                        Remove from folder
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => handleDeleteChat(chatId, "group")}>Leave group</ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
                 )
               } else {
                 // This is a direct chat
@@ -953,28 +1168,37 @@ export function ChatInterface() {
                 if (!otherUser) return null
 
                 return (
-                  <div
-                    key={chatId}
-                    className={`flex items-center p-2 rounded-lg cursor-pointer hover:bg-accent ${
-                      selectedChat === chatId ? "bg-accent" : ""
-                    }`}
-                    onClick={() => handleSelectChat(chatId, "direct")}
-                  >
-                    <Avatar className="h-10 w-10 mr-3">
-                      <AvatarImage src={otherUser.photoURL || ""} />
-                      <AvatarFallback>{otherUser.displayName.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <p className="font-medium truncate">{otherUser.displayName}</p>
-                        {unreadChats[chatId] && (
-                          <Badge variant="default" className="ml-2">
-                            {unreadChats[chatId]}
-                          </Badge>
-                        )}
+                  <ContextMenu key={chatId}>
+                    <ContextMenuTrigger>
+                      <div
+                        className={`flex items-center p-2 rounded-lg cursor-pointer hover:bg-accent ${
+                          selectedChat === chatId ? "bg-accent" : ""
+                        }`}
+                        onClick={() => handleSelectChat(chatId, "direct")}
+                      >
+                        <Avatar className="h-10 w-10 mr-3">
+                          <AvatarImage src={otherUser.photoURL || ""} />
+                          <AvatarFallback>{otherUser.displayName.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <p className="font-medium truncate">{otherUser.displayName}</p>
+                            {unreadChats[chatId] && (
+                              <Badge variant="default" className="ml-2">
+                                {unreadChats[chatId]}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem onClick={() => handleRemoveChatFromFolder(chatId, folder.id)}>
+                        Remove from folder
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => handleDeleteChat(chatId, "direct")}>Delete chat</ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
                 )
               }
             })}
@@ -995,15 +1219,22 @@ export function ChatInterface() {
               <h3 className="font-medium mb-2">Folders</h3>
               <div className="space-y-1">
                 {chatFolders.map((folder) => (
-                  <div
-                    key={folder.id}
-                    className="flex items-center p-2 rounded-lg cursor-pointer hover:bg-accent"
-                    onClick={() => setActiveFolderId(folder.id)}
-                  >
-                    <Folder className="h-5 w-5 mr-3 text-muted-foreground" />
-                    <span>{folder.name}</span>
-                    <ChevronRight className="h-4 w-4 ml-auto" />
-                  </div>
+                  <ContextMenu key={folder.id}>
+                    <ContextMenuTrigger>
+                      <div
+                        className="flex items-center p-2 rounded-lg cursor-pointer hover:bg-accent"
+                        onClick={() => setActiveFolderId(folder.id)}
+                      >
+                        <Folder className="h-5 w-5 mr-3 text-muted-foreground" />
+                        <span>{folder.name}</span>
+                        <ChevronRight className="h-4 w-4 ml-auto" />
+                      </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem onClick={() => handleEditFolder(folder)}>Edit folder</ContextMenuItem>
+                      <ContextMenuItem onClick={() => handleDeleteFolder(folder.id)}>Delete folder</ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
                 ))}
               </div>
             </div>
@@ -1013,32 +1244,67 @@ export function ChatInterface() {
           <h3 className="font-medium mb-2">Direct Messages</h3>
           <div className="space-y-1">
             {filteredUsers.map((u) => {
+              // Check if users follow each other (for privacy)
+              const mutualFollow =
+                (u.followers?.includes(user?.uid || "") || false) && (userProfile?.followers?.includes(u.id) || false)
+
               // Create a unique chat ID (sorted user IDs to ensure consistency)
               const chatId = [user?.uid, u.id].sort().join("_")
 
+              // If they don't follow each other, don't show the chat
+              if (!mutualFollow) return null
+
               return (
-                <div
-                  key={u.id}
-                  className={`flex items-center p-2 rounded-lg cursor-pointer hover:bg-accent ${
-                    selectedChat === chatId && selectedChatType === "direct" ? "bg-accent" : ""
-                  }`}
-                  onClick={() => handleSelectChat(chatId, "direct")}
-                >
-                  <Avatar className="h-10 w-10 mr-3">
-                    <AvatarImage src={u.photoURL || ""} />
-                    <AvatarFallback>{u.displayName.charAt(0)}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium truncate">{u.displayName}</p>
-                      {unreadChats[chatId] && (
-                        <Badge variant="default" className="ml-2">
-                          {unreadChats[chatId]}
-                        </Badge>
-                      )}
+                <ContextMenu key={u.id}>
+                  <ContextMenuTrigger>
+                    <div
+                      className={`flex items-center p-2 rounded-lg cursor-pointer hover:bg-accent ${
+                        selectedChat === chatId && selectedChatType === "direct" ? "bg-accent" : ""
+                      }`}
+                      onClick={() => handleSelectChat(chatId, "direct")}
+                    >
+                      <Avatar className="h-10 w-10 mr-3">
+                        <AvatarImage src={u.photoURL || ""} />
+                        <AvatarFallback>{u.displayName.charAt(0)}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium truncate">{u.displayName}</p>
+                          {unreadChats[chatId] && (
+                            <Badge variant="default" className="ml-2">
+                              {unreadChats[chatId]}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent>
+                    <ContextMenuItem onClick={() => handleViewUserProfile(u.id)}>View profile</ContextMenuItem>
+                    {chatFolders.length > 0 && (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <ContextMenuItem>Add to folder</ContextMenuItem>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-56">
+                          <div className="space-y-1">
+                            {chatFolders.map((folder) => (
+                              <Button
+                                key={folder.id}
+                                variant="ghost"
+                                className="w-full justify-start"
+                                onClick={() => handleAddChatToFolder(chatId, folder.id)}
+                              >
+                                {folder.name}
+                              </Button>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    )}
+                    <ContextMenuItem onClick={() => handleDeleteChat(chatId, "direct")}>Delete chat</ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
               )
             })}
           </div>
@@ -1049,28 +1315,56 @@ export function ChatInterface() {
               <h3 className="font-medium mb-2">Groups</h3>
               <div className="space-y-1">
                 {chatGroups.map((group) => (
-                  <div
-                    key={group.id}
-                    className={`flex items-center p-2 rounded-lg cursor-pointer hover:bg-accent ${
-                      selectedChat === group.id && selectedChatType === "group" ? "bg-accent" : ""
-                    }`}
-                    onClick={() => handleSelectChat(group.id, "group")}
-                  >
-                    <Avatar className="h-10 w-10 mr-3">
-                      <AvatarFallback>{group.name.charAt(0)}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <p className="font-medium truncate">{group.name}</p>
-                        {unreadChats[group.id] && (
-                          <Badge variant="default" className="ml-2">
-                            {unreadChats[group.id]}
-                          </Badge>
-                        )}
+                  <ContextMenu key={group.id}>
+                    <ContextMenuTrigger>
+                      <div
+                        className={`flex items-center p-2 rounded-lg cursor-pointer hover:bg-accent ${
+                          selectedChat === group.id && selectedChatType === "group" ? "bg-accent" : ""
+                        }`}
+                        onClick={() => handleSelectChat(group.id, "group")}
+                      >
+                        <Avatar className="h-10 w-10 mr-3">
+                          <AvatarFallback>{group.name.charAt(0)}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <p className="font-medium truncate">{group.name}</p>
+                            {unreadChats[group.id] && (
+                              <Badge variant="default" className="ml-2">
+                                {unreadChats[group.id]}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground truncate">{group.members.length} members</p>
+                        </div>
                       </div>
-                      <p className="text-sm text-muted-foreground truncate">{group.members.length} members</p>
-                    </div>
-                  </div>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem onClick={() => setIsGroupSettingsOpen(true)}>Group settings</ContextMenuItem>
+                      {chatFolders.length > 0 && (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <ContextMenuItem>Add to folder</ContextMenuItem>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-56">
+                            <div className="space-y-1">
+                              {chatFolders.map((folder) => (
+                                <Button
+                                  key={folder.id}
+                                  variant="ghost"
+                                  className="w-full justify-start"
+                                  onClick={() => handleAddChatToFolder(group.id, folder.id)}
+                                >
+                                  {folder.name}
+                                </Button>
+                              ))}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                      <ContextMenuItem onClick={() => handleDeleteChat(group.id, "group")}>Leave group</ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
                 ))}
               </div>
             </div>
@@ -1140,6 +1434,14 @@ export function ChatInterface() {
                   <Button variant="ghost" className="w-full justify-start" onClick={() => handleExportChat()}>
                     <Download className="h-4 w-4 mr-2" />
                     Export chat
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start"
+                    onClick={() => handleDeleteChat(selectedChat, "direct")}
+                  >
+                    <Trash className="h-4 w-4 mr-2" />
+                    Delete chat
                   </Button>
 
                   {chatFolders.length > 0 && (
@@ -1227,6 +1529,14 @@ export function ChatInterface() {
                   <Button variant="ghost" className="w-full justify-start" onClick={() => handleExportChat()}>
                     <Download className="h-4 w-4 mr-2" />
                     Export chat
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start"
+                    onClick={() => handleDeleteChat(selectedChat, "group")}
+                  >
+                    <Trash className="h-4 w-4 mr-2" />
+                    Leave group
                   </Button>
 
                   {chatFolders.length > 0 && (
@@ -1321,6 +1631,19 @@ export function ChatInterface() {
                 >
                   <p className="font-medium">{message.replyTo.senderName}</p>
                   <p className="text-muted-foreground truncate">{message.replyTo.content}</p>
+                </div>
+              )}
+
+              {/* Post reply reference */}
+              {message.postReply && (
+                <div
+                  className={`text-xs border-l-2 pl-2 mb-1 mx-2 cursor-pointer hover:bg-accent/50 ${
+                    isCurrentUser ? "text-right border-r-2 border-l-0 pr-2 pl-0" : ""
+                  }`}
+                  onClick={() => handleViewPostFromReply(message.postReply!.postId)}
+                >
+                  <p className="font-medium">Reply to post</p>
+                  <p className="text-muted-foreground truncate">{message.postReply.postTitle}</p>
                 </div>
               )}
 
@@ -1640,6 +1963,103 @@ export function ChatInterface() {
             }
           }}
         />
+
+        {/* Edit Folder Dialog */}
+        <Dialog open={isEditingFolder} onOpenChange={setIsEditingFolder}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit Folder</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-folder-name">Folder Name</Label>
+                <Input
+                  id="edit-folder-name"
+                  value={editingFolderName}
+                  onChange={(e) => setEditingFolderName(e.target.value)}
+                  placeholder="Enter folder name"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Chats in Folder</Label>
+                <ScrollArea className="h-[200px] border rounded-md p-2">
+                  {editingFolderContacts.length > 0 ? (
+                    editingFolderContacts.map((chatId) => {
+                      // Check if it's a group or direct chat
+                      const group = chatGroups.find((g) => g.id === chatId)
+
+                      if (group) {
+                        return (
+                          <div
+                            key={chatId}
+                            className="flex items-center justify-between py-2 px-2 hover:bg-accent rounded-md"
+                          >
+                            <div className="flex items-center">
+                              <Avatar className="h-6 w-6 mr-2">
+                                <AvatarFallback>{group.name.charAt(0)}</AvatarFallback>
+                              </Avatar>
+                              <span>{group.name}</span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                setEditingFolderContacts(editingFolderContacts.filter((id) => id !== chatId))
+                              }
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        )
+                      } else {
+                        // Direct chat
+                        const otherUserId = chatId.split("_").find((id) => id !== user?.uid)
+                        const otherUser = users.find((u) => u.id === otherUserId)
+
+                        if (!otherUser) return null
+
+                        return (
+                          <div
+                            key={chatId}
+                            className="flex items-center justify-between py-2 px-2 hover:bg-accent rounded-md"
+                          >
+                            <div className="flex items-center">
+                              <Avatar className="h-6 w-6 mr-2">
+                                <AvatarImage src={otherUser.photoURL || ""} />
+                                <AvatarFallback>{otherUser.displayName.charAt(0)}</AvatarFallback>
+                              </Avatar>
+                              <span>{otherUser.displayName}</span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                setEditingFolderContacts(editingFolderContacts.filter((id) => id !== chatId))
+                              }
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        )
+                      }
+                    })
+                  ) : (
+                    <p className="text-center text-muted-foreground py-4">No chats in this folder</p>
+                  )}
+                </ScrollArea>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsEditingFolder(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveEditedFolder} disabled={!editingFolderName.trim()}>
+                Save Changes
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
@@ -1878,6 +2298,103 @@ export function ChatInterface() {
           }
         }}
       />
+
+      {/* Edit Folder Dialog */}
+      <Dialog open={isEditingFolder} onOpenChange={setIsEditingFolder}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Folder</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-folder-name">Folder Name</Label>
+              <Input
+                id="edit-folder-name"
+                value={editingFolderName}
+                onChange={(e) => setEditingFolderName(e.target.value)}
+                placeholder="Enter folder name"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Chats in Folder</Label>
+              <ScrollArea className="h-[200px] border rounded-md p-2">
+                {editingFolderContacts.length > 0 ? (
+                  editingFolderContacts.map((chatId) => {
+                    // Check if it's a group or direct chat
+                    const group = chatGroups.find((g) => g.id === chatId)
+
+                    if (group) {
+                      return (
+                        <div
+                          key={chatId}
+                          className="flex items-center justify-between py-2 px-2 hover:bg-accent rounded-md"
+                        >
+                          <div className="flex items-center">
+                            <Avatar className="h-6 w-6 mr-2">
+                              <AvatarFallback>{group.name.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <span>{group.name}</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              setEditingFolderContacts(editingFolderContacts.filter((id) => id !== chatId))
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      )
+                    } else {
+                      // Direct chat
+                      const otherUserId = chatId.split("_").find((id) => id !== user?.uid)
+                      const otherUser = users.find((u) => u.id === otherUserId)
+
+                      if (!otherUser) return null
+
+                      return (
+                        <div
+                          key={chatId}
+                          className="flex items-center justify-between py-2 px-2 hover:bg-accent rounded-md"
+                        >
+                          <div className="flex items-center">
+                            <Avatar className="h-6 w-6 mr-2">
+                              <AvatarImage src={otherUser.photoURL || ""} />
+                              <AvatarFallback>{otherUser.displayName.charAt(0)}</AvatarFallback>
+                            </Avatar>
+                            <span>{otherUser.displayName}</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              setEditingFolderContacts(editingFolderContacts.filter((id) => id !== chatId))
+                            }
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      )
+                    }
+                  })
+                ) : (
+                  <p className="text-center text-muted-foreground py-4">No chats in this folder</p>
+                )}
+              </ScrollArea>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setIsEditingFolder(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEditedFolder} disabled={!editingFolderName.trim()}>
+              Save Changes
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

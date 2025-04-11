@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import Image from "next/image"
+
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { formatDistanceToNow } from "date-fns"
@@ -15,6 +15,9 @@ import { ThumbsUp, ArrowLeft } from "lucide-react"
 import type { Comment, Post } from "@/lib/types"
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore"
 import { db } from "@/lib/firebase"
+import { BookmarkButton } from "@/components/bookmark-button"
+import { PostReplyButton } from "@/components/post-reply-button"
+import { MediaViewer } from "@/components/media-viewer"
 
 export default function PostPage() {
   const { id } = useParams<{ id: string }>()
@@ -22,6 +25,7 @@ export default function PostPage() {
   const [loading, setLoading] = useState(true)
   const [comment, setComment] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isMediaViewerOpen, setIsMediaViewerOpen] = useState(false)
   const { user } = useAuth()
   const router = useRouter()
 
@@ -117,6 +121,19 @@ export default function PostPage() {
     }
   }
 
+  const getMediaType = (url: string | undefined): "image" | "video" | "pdf" | "gif" | null => {
+    if (!url) return null
+
+    const extension = url.split(".").pop()?.toLowerCase()
+
+    if (extension === "pdf") return "pdf"
+    if (extension === "gif") return "gif"
+    if (["mp4", "webm", "mov"].includes(extension || "")) return "video"
+    if (["jpg", "jpeg", "png", "webp"].includes(extension || "")) return "image"
+
+    return null
+  }
+
   if (loading) {
     return (
       <>
@@ -151,6 +168,8 @@ export default function PostPage() {
     )
   }
 
+  const mediaType = getMediaType(post.mediaURL)
+
   return (
     <>
       <Navbar />
@@ -178,15 +197,41 @@ export default function PostPage() {
 
             <div className="prose dark:prose-invert max-w-none mb-6">
               <p>{post.content}</p>
-          {post.imageURL && (
-            <div className="relative w-full h-48 rounded-md overflow-hidden mb-2">
-              <Image src={post.imageURL || "/placeholder.svg"} alt={post.title} fill className="object-cover" />
-            </div>
-          )}
             </div>
 
+            {post.mediaURL && mediaType && (
+              <div className="mb-6">
+                <div className="cursor-pointer rounded-md overflow-hidden" onClick={() => setIsMediaViewerOpen(true)}>
+                  {mediaType === "image" || mediaType === "gif" ? (
+                    <img
+                      src={post.mediaURL || "/placeholder.svg"}
+                      alt={post.title}
+                      className="w-full max-h-96 object-contain bg-muted"
+                    />
+                  ) : mediaType === "video" ? (
+                    <video src={post.mediaURL} controls className="w-full max-h-96" />
+                  ) : mediaType === "pdf" ? (
+                    <div className="flex items-center justify-center bg-muted p-8 rounded-md">
+                      <div className="text-center">
+                        <p className="font-medium mb-2">PDF Document</p>
+                        <Button
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setIsMediaViewerOpen(true)
+                          }}
+                        >
+                          View PDF
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between border-t pt-4">
-              <div className="flex items-center">
+              <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -197,7 +242,11 @@ export default function PostPage() {
                   <ThumbsUp className="h-4 w-4 mr-1" />
                   <span>{post.likes.length} likes</span>
                 </Button>
+
+                <PostReplyButton post={post} />
               </div>
+
+              <BookmarkButton postId={post.id} />
             </div>
           </div>
 
@@ -253,6 +302,16 @@ export default function PostPage() {
           </div>
         </div>
       </div>
+
+      {mediaType && (
+        <MediaViewer
+          isOpen={isMediaViewerOpen}
+          onClose={() => setIsMediaViewerOpen(false)}
+          mediaUrl={post.mediaURL || ""}
+          mediaType={mediaType}
+          title={post.title}
+        />
+      )}
     </>
   )
 }

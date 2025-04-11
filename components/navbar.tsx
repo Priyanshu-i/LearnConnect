@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { LogOut, MessageSquare, User } from "lucide-react"
+import { Bookmark, LogOut, MessageSquare, User } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
 
 export function Navbar() {
@@ -30,6 +30,12 @@ export function Navbar() {
 
           {user ? (
             <div className="flex items-center gap-4">
+              <Link href="/bookmarks">
+                <Button variant="ghost" size="icon">
+                  <Bookmark className="h-5 w-5" />
+                </Button>
+              </Link>
+
               <Link href="/chat">
                 <Button variant="ghost" size="icon">
                   <MessageSquare className="h-5 w-5" />
@@ -50,6 +56,12 @@ export function Navbar() {
                     <Link href="/profile" className="cursor-pointer flex items-center">
                       <User className="mr-2 h-4 w-4" />
                       <span>Profile</span>
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/bookmarks" className="cursor-pointer flex items-center">
+                      <Bookmark className="mr-2 h-4 w-4" />
+                      <span>Bookmarks</span>
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={signOut} className="cursor-pointer">

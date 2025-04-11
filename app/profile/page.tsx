@@ -1,59 +1,110 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { useAuth } from "@/lib/hooks/use-auth"
 import { Navbar } from "@/components/navbar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import type { Post } from "@/lib/types"
-import { collection, query, where, getDocs, orderBy } from "firebase/firestore"
-import { db } from "@/lib/firebase"
+import { Card, CardContent } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { PostCard } from "@/components/post-card"
+import { UserActivity } from "@/components/user-activity"
+import { FollowersModal } from "@/components/followers-modal"
+import {
+  doc,
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  orderBy,
+  updateDoc,
+  arrayUnion,
+  arrayRemove,
+  addDoc,
+} from "firebase/firestore"
+import { db } from "@/lib/firebase"
+import type { Post, UserProfile } from "@/lib/types"
+import { CalendarDays, Link2, MapPin, UserPlus, UserMinus, Users } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
 
-export default function ProfilePage() {
+export default function UserProfilePage() {
+  const { userId } = useParams<{ userId: string }>()
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [userPosts, setUserPosts] = useState<Post[]>([])
+  const [isFollowing, setIsFollowing] = useState(false)
+  const [canMessage, setCanMessage] = useState(false)
+  const [followerCount, setFollowerCount] = useState(0)
+  const [followingCount, setFollowingCount] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [isFollowersModalOpen, setIsFollowersModalOpen] = useState(false)
+  const [isFollowingModalOpen, setIsFollowingModalOpen] = useState(false)
   const { user } = useAuth()
   const router = useRouter()
+  const { toast } = useToast()
+
+  const isOwnProfile = user?.uid === userId
 
   useEffect(() => {
-    if (!user) {
-      router.push("/")
-      return
+    if (!userId) return
+
+    async function fetchUserProfile() {
+      try {
+        setLoading(true)
+        const userDocRef = doc(db, "users", userId as string)
+        const userDoc = await getDoc(userDocRef)
+
+        if (userDoc.exists()) {
+          const userData = userDoc.data() as UserProfile
+          setUserProfile(userData)
+
+          // Check if current user is following this user
+          if (user && userData.followers) {
+            setIsFollowing(userData.followers.includes(user.uid))
+            setFollowerCount(userData.followers.length)
+          }
+
+          if (userData.following) {
+            setFollowingCount(userData.following.length)
+          }
+
+          // Check if they can message each other (mutual follow)
+          if (user && user.uid !== userId) {
+            const currentUserDoc = await getDoc(doc(db, "users", user.uid))
+            if (currentUserDoc.exists()) {
+              const currentUserData = currentUserDoc.data() as UserProfile
+              const mutualFollow =
+                (userData.followers?.includes(user.uid) || false) &&
+                (currentUserData.followers?.includes(userId as string) || false)
+              setCanMessage(mutualFollow)
+            }
+          }
+        } else {
+          toast({
+            title: "User not found",
+            description: "The requested user profile does not exist",
+            variant: "destructive",
+          })
+          router.push("/")
+        }
+      } catch (error) {
+        console.error("Error fetching user profile:", error)
+      }
     }
 
     async function fetchUserPosts() {
-      if (!user) return
-
       try {
-        const postsQuery = query(
-          collection(db, "posts"),
-          where("authorId", "==", user.uid),
-          orderBy("createdAt", "desc") // Ensure createdAt exists and is a Firestore Timestamp
-        )
+        const postsQuery = query(collection(db, "posts"), where("authorId", "==", userId), orderBy("createdAt", "desc"))
 
         const querySnapshot = await getDocs(postsQuery)
         const posts: Post[] = []
 
         querySnapshot.forEach((doc) => {
-          const data = doc.data()
-          let createdAt = null
-
-          // Check if createdAt exists and is a Firestore Timestamp
-          if (data.createdAt && typeof data.createdAt.toDate === "function") {
-            createdAt = data.createdAt.toDate() // Convert Firestore Timestamp to JS Date
-          } else if (data.createdAt) {
-            // Handle cases where createdAt is not a Firestore Timestamp (e.g., string or number)
-            createdAt = new Date(data.createdAt)
-          }
-
           posts.push({
             id: doc.id,
-            ...(data as Omit<Post, "id" | "createdAt">),
-            createdAt, // Use the parsed createdAt value
+            ...(doc.data() as Omit<Post, "id">),
           })
         })
 
@@ -65,11 +116,152 @@ export default function ProfilePage() {
       }
     }
 
+    fetchUserProfile()
     fetchUserPosts()
-  }, [user, router])
+  }, [userId, user, router, toast])
 
-  if (!user) {
-    return null
+  const handleFollowToggle = async () => {
+    if (!user || !userProfile) return
+
+    try {
+      const userDocRef = doc(db, "users", userId as string)
+      const currentUserRef = doc(db, "users", user.uid)
+
+      if (isFollowing) {
+        // Unfollow
+        await updateDoc(userDocRef, {
+          followers: arrayRemove(user.uid),
+        })
+
+        await updateDoc(currentUserRef, {
+          following: arrayRemove(userId),
+        })
+
+        setIsFollowing(false)
+        setFollowerCount((prev) => prev - 1)
+        setCanMessage(false)
+
+        toast({
+          title: "Unfollowed",
+          description: `You are no longer following ${userProfile.displayName}`,
+        })
+      } else {
+        // Follow
+        await updateDoc(userDocRef, {
+          followers: arrayUnion(user.uid),
+        })
+
+        await updateDoc(currentUserRef, {
+          following: arrayUnion(userId),
+        })
+
+        setIsFollowing(true)
+        setFollowerCount((prev) => prev + 1)
+
+        // Check if they now follow each other
+        const targetUserDoc = await getDoc(userDocRef)
+        if (targetUserDoc.exists()) {
+          const targetUserData = targetUserDoc.data() as UserProfile
+          if (targetUserData.following?.includes(user.uid)) {
+            setCanMessage(true)
+          }
+        }
+
+        toast({
+          title: "Following",
+          description: `You are now following ${userProfile.displayName}`,
+        })
+
+        // Create follow request notification if they don't follow you back
+        if (!canMessage) {
+          const followRequestRef = collection(db, "followRequests")
+          await addDoc(followRequestRef, {
+            id: `follow_${userId}`,
+            senderId: user.uid,
+            senderName: user.displayName,
+            senderPhotoURL: user.photoURL,
+            recipientId: userId,
+            timestamp: Date.now(),
+            status: "pending",
+          })
+        }
+      }
+    } catch (error) {
+      console.error("Error updating follow status:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update follow status. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleMessageUser = () => {
+    if (!canMessage) {
+      toast({
+        title: "Cannot message",
+        description: "You can only message users who follow you and whom you follow",
+        variant: "destructive",
+      })
+      return
+    }
+
+    router.push("/chat")
+  }
+
+  if (loading) {
+    return (
+      <>
+        <Navbar />
+        <div className="container mx-auto px-4 py-8">
+          <div className="max-w-4xl mx-auto">
+            <Card className="mb-8">
+              <CardContent className="p-6">
+                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+                  <Skeleton className="h-24 w-24 rounded-full" />
+                  <div className="flex-1 space-y-4 text-center sm:text-left">
+                    <Skeleton className="h-8 w-48" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-3/4" />
+                    <div className="flex justify-center sm:justify-start gap-4">
+                      <Skeleton className="h-10 w-24" />
+                      <Skeleton className="h-10 w-24" />
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Tabs defaultValue="posts">
+              <TabsList className="mb-6">
+                <TabsTrigger value="posts">Posts</TabsTrigger>
+                <TabsTrigger value="activity">Activity</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="posts">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-64 w-full" />
+                  ))}
+                </div>
+              </TabsContent>
+            </Tabs>
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  if (!userProfile) {
+    return (
+      <>
+        <Navbar />
+        <div className="container mx-auto px-4 py-8 text-center">
+          <h2 className="text-2xl font-bold mb-4">User not found</h2>
+          <Button onClick={() => router.push("/")}>Back to Home</Button>
+        </div>
+      </>
+    )
   }
 
   return (
@@ -78,40 +270,109 @@ export default function ProfilePage() {
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
           <Card className="mb-8">
-            <CardHeader className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
-              <Avatar className="h-24 w-24">
-                <AvatarImage src={user.photoURL || ""} />
-                <AvatarFallback>{user.displayName?.charAt(0) || "U"}</AvatarFallback>
-              </Avatar>
-              <div className="text-center sm:text-left">
-                <CardTitle className="text-2xl">{user.displayName}</CardTitle>
-                <CardDescription>{user.email}</CardDescription>
-                <div className="mt-4">
-                  <Button onClick={() => router.push("/create-post")}>Create New Post</Button>
+            <CardContent className="p-6">
+              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+                <Avatar className="h-24 w-24">
+                  <AvatarImage src={userProfile.photoURL || ""} />
+                  <AvatarFallback>{userProfile.displayName.charAt(0)}</AvatarFallback>
+                </Avatar>
+
+                <div className="flex-1 space-y-4 text-center sm:text-left">
+                  <div>
+                    <h1 className="text-2xl font-bold">{userProfile.displayName}</h1>
+                    <p className="text-muted-foreground">{userProfile.email}</p>
+                  </div>
+
+                  {userProfile.bio && <p>{userProfile.bio}</p>}
+
+                  <div className="flex flex-wrap gap-4 justify-center sm:justify-start text-sm text-muted-foreground">
+                    {userProfile.location && (
+                      <div className="flex items-center">
+                        <MapPin className="h-4 w-4 mr-1" />
+                        <span>{userProfile.location}</span>
+                      </div>
+                    )}
+
+                    {userProfile.website && (
+                      <div className="flex items-center">
+                        <Link2 className="h-4 w-4 mr-1" />
+                        <a
+                          href={
+                            userProfile.website.startsWith("http")
+                              ? userProfile.website
+                              : `https://${userProfile.website}`
+                          }
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="hover:underline text-primary"
+                        >
+                          {userProfile.website.replace(/^https?:\/\//, "")}
+                        </a>
+                      </div>
+                    )}
+
+                    <div className="flex items-center">
+                      <CalendarDays className="h-4 w-4 mr-1" />
+                      <span>Joined {new Date(userProfile.createdAt).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-6 justify-center sm:justify-start">
+                    <div>
+                      <span className="font-bold">{userPosts.length}</span>
+                      <span className="text-muted-foreground ml-1">Posts</span>
+                    </div>
+                    <button className="hover:underline cursor-pointer" onClick={() => setIsFollowersModalOpen(true)}>
+                      <span className="font-bold">{followerCount}</span>
+                      <span className="text-muted-foreground ml-1">Followers</span>
+                    </button>
+                    <button className="hover:underline cursor-pointer" onClick={() => setIsFollowingModalOpen(true)}>
+                      <span className="font-bold">{followingCount}</span>
+                      <span className="text-muted-foreground ml-1">Following</span>
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {isOwnProfile ? (
+                      <Button onClick={() => router.push("/profile")}>Edit Profile</Button>
+                    ) : (
+                      <>
+                        <Button onClick={handleFollowToggle} variant={isFollowing ? "outline" : "default"}>
+                          {isFollowing ? (
+                            <>
+                              <UserMinus className="h-4 w-4 mr-2" />
+                              Unfollow
+                            </>
+                          ) : (
+                            <>
+                              <UserPlus className="h-4 w-4 mr-2" />
+                              Follow
+                            </>
+                          )}
+                        </Button>
+
+                        {canMessage && (
+                          <Button onClick={handleMessageUser} variant="outline">
+                            <Users className="h-4 w-4 mr-2" />
+                            Message
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
-            </CardHeader>
+            </CardContent>
           </Card>
 
           <Tabs defaultValue="posts">
             <TabsList className="mb-6">
-              <TabsTrigger value="posts">My Posts</TabsTrigger>
+              <TabsTrigger value="posts">Posts</TabsTrigger>
               <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
 
             <TabsContent value="posts">
-              {loading ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="border rounded-lg p-4 shadow-sm">
-                      <div className="h-6 bg-gray-200 rounded w-3/4 mb-4"></div>
-                      <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
-                      <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
-                      <div className="h-4 bg-gray-200 rounded w-2/3 mb-4"></div>
-                    </div>
-                  ))}
-                </div>
-              ) : userPosts.length > 0 ? (
+              {userPosts.length > 0 ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {userPosts.map((post) => (
                     <PostCard key={post.id} post={post} currentUser={user} />
@@ -120,23 +381,37 @@ export default function ProfilePage() {
               ) : (
                 <Card>
                   <CardContent className="py-8 text-center">
-                    <p className="text-muted-foreground mb-4">You haven't created any posts yet.</p>
-                    <Button onClick={() => router.push("/create-post")}>Create Your First Post</Button>
+                    <p className="text-muted-foreground mb-4">No posts yet</p>
+                    {isOwnProfile && (
+                      <Button onClick={() => router.push("/create-post")}>Create Your First Post</Button>
+                    )}
                   </CardContent>
                 </Card>
               )}
             </TabsContent>
 
             <TabsContent value="activity">
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <p className="text-muted-foreground">Your recent activity will appear here.</p>
-                </CardContent>
-              </Card>
+              <UserActivity userId={userId as string} />
             </TabsContent>
           </Tabs>
         </div>
       </div>
+
+      {/* Followers Modal */}
+      <FollowersModal
+        isOpen={isFollowersModalOpen}
+        onClose={() => setIsFollowersModalOpen(false)}
+        userId={userId as string}
+        type="followers"
+      />
+
+      {/* Following Modal */}
+      <FollowersModal
+        isOpen={isFollowingModalOpen}
+        onClose={() => setIsFollowingModalOpen(false)}
+        userId={userId as string}
+        type="following"
+      />
     </>
   )
 }

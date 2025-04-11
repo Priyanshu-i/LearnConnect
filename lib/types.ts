@@ -8,7 +8,8 @@ export interface Post {
   createdAt: number
   likes: string[]
   comments?: Comment[]
-  imageURL?: string
+  mediaURL?: string
+  mediaType?: "image" | "video" | "pdf" | "gif" | null
 }
 
 export interface Comment {
@@ -33,6 +34,10 @@ export interface ChatMessage {
     content: string
     senderId: string
     senderName: string
+  }
+  postReply?: {
+    postId: string
+    postTitle: string
   }
 }
 
@@ -84,4 +89,21 @@ export interface UserActivity {
   targetId: string
   content?: string
   timestamp: number
+}
+
+export interface FollowRequest {
+  id: string
+  senderId: string
+  senderName: string
+  senderPhotoURL?: string
+  recipientId: string
+  timestamp: number
+  status: "pending" | "accepted" | "declined"
+}
+
+export interface Bookmark {
+  id: string
+  postId: string
+  userId: string
+  createdAt: number
 }
