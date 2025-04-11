@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-
+import Image from "next/image"
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { formatDistanceToNow } from "date-fns"
@@ -178,6 +178,11 @@ export default function PostPage() {
 
             <div className="prose dark:prose-invert max-w-none mb-6">
               <p>{post.content}</p>
+          {post.imageURL && (
+            <div className="relative w-full h-48 rounded-md overflow-hidden mb-2">
+              <Image src={post.imageURL || "/placeholder.svg"} alt={post.title} fill className="object-cover" />
+            </div>
+          )}
             </div>
 
             <div className="flex items-center justify-between border-t pt-4">
