@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { PDFRenderer } from "@/components/pdf-renderer"
 import {
   ChevronLeft,
   ChevronRight,
@@ -43,32 +44,21 @@ export function MediaViewer({ isOpen, onClose, mediaUrl, mediaType, title }: Med
   const [pdfText, setPdfText] = useState<string[]>([])
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // PDF.js library would be used here in a real implementation
-  // For this example, we'll simulate PDF functionality
   useEffect(() => {
     if (mediaType === "pdf" && isOpen) {
-      // Simulate loading a PDF document
       setIsLoading(true)
-
-      // Simulate fetching PDF data
       setTimeout(() => {
-        // Simulate PDF with 10 pages
         setTotalPages(10)
-
-        // Generate fake thumbnails
         const fakeThumbnails = Array.from(
           { length: 10 },
           (_, i) => `/placeholder.svg?height=100&width=80&text=Page ${i + 1}`,
         )
         setThumbnails(fakeThumbnails)
-
-        // Generate fake text content for search
         const fakeTextContent = Array.from(
           { length: 10 },
           (_, i) => `This is page ${i + 1} of the PDF document. It contains sample text that can be searched.`,
         )
         setPdfText(fakeTextContent)
-
         setIsLoading(false)
       }, 1000)
     }
@@ -84,8 +74,6 @@ export function MediaViewer({ isOpen, onClose, mediaUrl, mediaType, title }: Med
       })
       setSearchResults(results)
       setCurrentSearchIndex(0)
-
-      // Go to first result if there are any
       if (results.length > 0) {
         setCurrentPage(results[0])
       }
@@ -302,31 +290,12 @@ export function MediaViewer({ isOpen, onClose, mediaUrl, mediaType, title }: Med
               </div>
 
               <TabsContent value="document" className="flex-1 relative mt-0">
-                {isLoading && <Skeleton className="absolute inset-0" />}
-                <div
-                  className="w-full h-full bg-muted flex items-center justify-center overflow-auto"
-                  style={{ minHeight: "60vh" }}
-                >
-                  {/* In a real implementation, this would be a PDF.js canvas */}
-                  <div
-                    className="bg-white shadow-md p-8 m-4"
-                    style={{
-                      transform: `scale(${zoomLevel}) rotate(${rotation}deg)`,
-                      transformOrigin: "center center",
-                      transition: "transform 0.3s ease",
-                      width: "calc(8.5in * 96px)", // Standard US Letter size at 96 DPI
-                      height: "calc(11in * 96px)",
-                    }}
-                  >
-                    <div className="flex flex-col h-full justify-center items-center">
-                      <h2 className="text-2xl font-bold mb-4">Page {currentPage}</h2>
-                      <p className="text-center mb-4">{pdfText[currentPage - 1] || "This is a simulated PDF page."}</p>
-                      {searchText && pdfText[currentPage - 1]?.toLowerCase().includes(searchText.toLowerCase()) && (
-                        <div className="bg-yellow-200 p-2 rounded">Search term "{searchText}" found on this page</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <PDFRenderer
+                  cloudinaryUrl={mediaUrl}
+                  className="w-full h-full"
+                  onLoadComplete={() => setIsLoading(false)}
+                  onError={() => setIsLoading(false)}
+                />
               </TabsContent>
 
               <TabsContent value="thumbnails" className="flex-1 mt-0">
@@ -353,27 +322,12 @@ export function MediaViewer({ isOpen, onClose, mediaUrl, mediaType, title }: Med
                   </ScrollArea>
 
                   <div className="flex-1 relative">
-                    {isLoading && <Skeleton className="absolute inset-0" />}
-                    <div className="w-full h-full bg-muted flex items-center justify-center overflow-auto">
-                      {/* In a real implementation, this would be a PDF.js canvas */}
-                      <div
-                        className="bg-white shadow-md p-8 m-4"
-                        style={{
-                          transform: `scale(${zoomLevel}) rotate(${rotation}deg)`,
-                          transformOrigin: "center center",
-                          transition: "transform 0.3s ease",
-                          width: "calc(8.5in * 96px)", // Standard US Letter size at 96 DPI
-                          height: "calc(11in * 96px)",
-                        }}
-                      >
-                        <div className="flex flex-col h-full justify-center items-center">
-                          <h2 className="text-2xl font-bold mb-4">Page {currentPage}</h2>
-                          <p className="text-center mb-4">
-                            {pdfText[currentPage - 1] || "This is a simulated PDF page."}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                    <PDFRenderer
+                      cloudinaryUrl={mediaUrl}
+                      className="w-full h-full"
+                      onLoadComplete={() => setIsLoading(false)}
+                      onError={() => setIsLoading(false)}
+                    />
                   </div>
                 </div>
               </TabsContent>
