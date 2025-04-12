@@ -6,7 +6,7 @@ import { formatDistanceToNow } from "date-fns"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { MessageSquare, ThumbsUp, FileText, Film } from "lucide-react"
+import { MessageSquare, ThumbsUp, FileText, Film, Pencil} from "lucide-react"
 import type { Post } from "@/lib/types"
 import type { User } from "firebase/auth"
 import { doc, updateDoc, arrayUnion, arrayRemove, setDoc } from "firebase/firestore"
@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation"
 import { BookmarkButton } from "./bookmark-button"
 import { PostReplyButton } from "./post-reply-button"
 import { MediaViewer } from "./media-viewer"
+import {PostEditModal} from "@/components/post-edit-modal"
 
 interface PostCardProps {
   post: Post
@@ -28,8 +29,10 @@ export function PostCard({ post, currentUser }: PostCardProps) {
   const [isLiked, setIsLiked] = useState(currentUser ? likes.includes(currentUser.uid) : false)
   const [isLoading, setIsLoading] = useState(false)
   const [isMediaViewerOpen, setIsMediaViewerOpen] = useState(false)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const { toast } = useToast()
   const router = useRouter()
+  const [postData, setPostData] = useState(post);
 
   const handleLike = async () => {
     if (!currentUser) return
@@ -194,6 +197,21 @@ export function PostCard({ post, currentUser }: PostCardProps) {
           </div>
 
           <div className="flex items-center gap-2">
+          {currentUser?.uid === post.authorId && (
+  <Button
+    variant="ghost"
+    size="icon"
+    onClick={() => setIsEditModalOpen(true)}
+    title="Edit post"
+  >
+    <Pencil className="h-4 w-4" />
+  </Button>
+)}
+<PostEditModal
+  isOpen={isEditModalOpen}
+  onClose={() => setIsEditModalOpen(false)}
+  post={post}
+/>
             <PostReplyButton post={post} size="icon" />
             <BookmarkButton postId={post.id} size="icon" />
           </div>

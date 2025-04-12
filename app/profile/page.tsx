@@ -223,20 +223,22 @@ export default function MyProfile() {
                       </div>
                     </div>
 
-                    <div className="flex gap-6 mt-6 items-center flex-wrap">
-                        <span className="gap-6">{userPosts.length} Posts</span>
-                        <Button variant="ghost" onClick={() => setShowFollowersModal(true)}>
-                          <span className="font-bold">{userProfile?.followers?.length || 0}</span>
-                          <span className="ml-1">Followers</span>
-                        </Button>
-                        <Button variant="ghost" onClick={() => setShowFollowingModal(true)}>
-                          <span className="font-bold">{userProfile?.following?.length || 0}</span>
-                          <span className="ml-1">Following</span>
-                        </Button>
-                        <Button variant="ghost" onClick={() => setShowContactsModal(true)}>
-                          <span className="ml-1">All Contacts</span>
-                        </Button>
-                    </div>
+                    <div className="flex flex-col gap-4 sm:flex-row sm:gap-6 mt-4 sm:mt-6 items-center">
+  <span className="text-sm sm:text-base flex items-center">
+    <span className="font-bold mr-1">{userPosts.length}</span> Posts
+  </span>
+  <Button variant="ghost" onClick={() => setShowFollowersModal(true)} className="flex flex-row sm:flex-row items-center">
+    <span className="font-bold mr-1">{userProfile?.followers?.length || 0}</span>
+    <span className="text-sm sm:text-base">Followers</span>
+  </Button>
+  <Button variant="ghost" onClick={() => setShowFollowingModal(true)} className="flex flex-row sm:flex-row items-center">
+    <span className="font-bold mr-1">{userProfile?.following?.length || 0}</span>
+    <span className="text-sm sm:text-base">Following</span>
+  </Button>
+  <Button variant="ghost" onClick={() => setShowContactsModal(true)} className="flex flex-row sm:flex-row items-center">
+    <span className="text-sm sm:text-base">All Contacts</span>
+  </Button>
+</div>
                   </div>
                 )}
               </div>

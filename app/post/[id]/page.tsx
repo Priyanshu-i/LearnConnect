@@ -1,97 +1,95 @@
-"use client"
+"use client";
 
-import type React from "react"
-
-import { useEffect, useState } from "react"
-import { useParams, useRouter } from "next/navigation"
-import { formatDistanceToNow } from "date-fns"
-import { useAuth } from "@/lib/hooks/use-auth"
-import { Navbar } from "@/components/navbar"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardFooter } from "@/components/ui/card"
-import { Textarea } from "@/components/ui/textarea"
-import { ThumbsUp, ArrowLeft } from "lucide-react"
-import type { Comment, Post } from "@/lib/types"
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore"
-import { db } from "@/lib/firebase"
-import { BookmarkButton } from "@/components/bookmark-button"
-import { PostReplyButton } from "@/components/post-reply-button"
-import { MediaViewer } from "@/components/media-viewer"
+import React, { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { formatDistanceToNow } from "date-fns";
+import { useAuth } from "@/lib/hooks/use-auth";
+import { Navbar } from "@/components/navbar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { Textarea } from "@/components/ui/textarea";
+import { ThumbsUp, ArrowLeft, Pencil } from "lucide-react";
+import { BookmarkButton } from "@/components/bookmark-button";
+import { PostReplyButton } from "@/components/post-reply-button";
+import { MediaViewer } from "@/components/media-viewer";
+import { PostEditModal } from "@/components/post-edit-modal";
+import type { Comment, Post } from "@/lib/types";
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export default function PostPage() {
-  const { id } = useParams<{ id: string }>()
-  const [post, setPost] = useState<Post | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [comment, setComment] = useState("")
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [isMediaViewerOpen, setIsMediaViewerOpen] = useState(false)
-  const { user } = useAuth()
-  const router = useRouter()
+  const { id } = useParams<{ id: string }>();
+  const [post, setPost] = useState<Post | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [comment, setComment] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isMediaViewerOpen, setIsMediaViewerOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false); // Moved state here
+  const { user } = useAuth();
+  const router = useRouter();
 
-  const isLiked = user && post?.likes.includes(user.uid)
+  const isLiked = user && post?.likes.includes(user.uid);
 
   useEffect(() => {
     async function fetchPost() {
       try {
-        const postDoc = await getDoc(doc(db, "posts", id as string))
+        const postDoc = await getDoc(doc(db, "posts", id as string));
 
         if (postDoc.exists()) {
           setPost({
             id: postDoc.id,
             ...(postDoc.data() as Omit<Post, "id">),
-          })
+          });
         } else {
-          router.push("/")
+          router.push("/");
         }
       } catch (error) {
-        console.error("Error fetching post:", error)
+        console.error("Error fetching post:", error);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
     }
 
-    fetchPost()
-  }, [id, router])
+    fetchPost();
+  }, [id, router]);
 
   const handleLike = async () => {
-    if (!user || !post) return
+    if (!user || !post) return;
 
     try {
-      const postRef = doc(db, "posts", post.id)
+      const postRef = doc(db, "posts", post.id);
 
       if (isLiked) {
-        // Unlike
         await updateDoc(postRef, {
           likes: arrayRemove(user.uid),
-        })
+        });
         setPost({
           ...post,
           likes: post.likes.filter((id) => id !== user.uid),
-        })
+        });
       } else {
-        // Like
         await updateDoc(postRef, {
           likes: arrayUnion(user.uid),
-        })
+        });
         setPost({
           ...post,
           likes: [...post.likes, user.uid],
-        })
+        });
       }
     } catch (error) {
-      console.error("Error updating like:", error)
+      console.error("Error updating like:", error);
     }
-  }
+  };
 
   const handleAddComment = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
 
     if (!user || !post || !comment.trim()) {
-      return
+      return;
     }
 
-    setIsSubmitting(true)
+    setIsSubmitting(true);
 
     try {
       const newComment: Comment = {
@@ -101,38 +99,38 @@ export default function PostPage() {
         authorName: user.displayName || "Anonymous",
         authorPhotoURL: user.photoURL || undefined,
         createdAt: Date.now(),
-      }
+      };
 
-      const postRef = doc(db, "posts", post.id)
+      const postRef = doc(db, "posts", post.id);
       await updateDoc(postRef, {
         comments: arrayUnion(newComment),
-      })
+      });
 
       setPost({
         ...post,
         comments: [...(post.comments || []), newComment],
-      })
+      });
 
-      setComment("")
+      setComment("");
     } catch (error) {
-      console.error("Error adding comment:", error)
+      console.error("Error adding comment:", error);
     } finally {
-      setIsSubmitting(false)
+      setIsSubmitting(false);
     }
-  }
+  };
 
   const getMediaType = (url: string | undefined): "image" | "video" | "pdf" | "gif" | null => {
-    if (!url) return null
+    if (!url) return null;
 
-    const extension = url.split(".").pop()?.toLowerCase()
+    const extension = url.split(".").pop()?.toLowerCase();
 
-    if (extension === "pdf") return "pdf"
-    if (extension === "gif") return "gif"
-    if (["mp4", "webm", "mov"].includes(extension || "")) return "video"
-    if (["jpg", "jpeg", "png", "webp"].includes(extension || "")) return "image"
+    if (extension === "pdf") return "pdf";
+    if (extension === "gif") return "gif";
+    if (["mp4", "webm", "mov"].includes(extension || "")) return "video";
+    if (["jpg", "jpeg", "png", "webp"].includes(extension || "")) return "image";
 
-    return null
-  }
+    return null;
+  };
 
   if (loading) {
     return (
@@ -150,7 +148,7 @@ export default function PostPage() {
           </div>
         </div>
       </>
-    )
+    );
   }
 
   if (!post) {
@@ -165,13 +163,13 @@ export default function PostPage() {
           </Button>
         </div>
       </>
-    )
+    );
   }
 
-  const mediaType = getMediaType(post.mediaURL)
+  const mediaType = getMediaType(post.mediaURL);
   const handleViewProfile = () => {
-    router.push(`/profile/${post.authorId}`)
-  }
+    router.push(`/profile/${post.authorId}`);
+  };
 
   return (
     <>
@@ -186,11 +184,11 @@ export default function PostPage() {
           <div className="bg-card rounded-lg shadow-sm p-6 mb-8">
             <h1 className="text-3xl font-bold mb-2">{post.title}</h1>
             <div className="flex items-center mb-6">
-            <div className="flex items-center gap-2 cursor-pointer" onClick={handleViewProfile}>
-              <Avatar className="h-8 w-8 mr-2">
-                <AvatarImage src={post.authorPhotoURL || ""} />
-                <AvatarFallback>{post.authorName?.charAt(0) || "U"}</AvatarFallback>
-              </Avatar>
+              <div className="flex items-center gap-2 cursor-pointer" onClick={handleViewProfile}>
+                <Avatar className="h-8 w-8 mr-2">
+                  <AvatarImage src={post.authorPhotoURL || ""} />
+                  <AvatarFallback>{post.authorName?.charAt(0) || "U"}</AvatarFallback>
+                </Avatar>
               </div>
               <div>
                 <p className="text-sm font-medium">{post.authorName}</p>
@@ -209,7 +207,7 @@ export default function PostPage() {
                 <div className="cursor-pointer rounded-md overflow-hidden" onClick={() => setIsMediaViewerOpen(true)}>
                   {mediaType === "image" || mediaType === "gif" ? (
                     <img
-                      src={post.mediaURL || "/placeholder.svg"}
+                      src={post.mediaURL}
                       alt={post.title}
                       className="w-full max-h-96 object-contain bg-muted"
                     />
@@ -222,8 +220,8 @@ export default function PostPage() {
                         <Button
                           size="sm"
                           onClick={(e) => {
-                            e.stopPropagation()
-                            setIsMediaViewerOpen(true)
+                            e.stopPropagation();
+                            setIsMediaViewerOpen(true);
                           }}
                         >
                           View PDF
@@ -247,11 +245,21 @@ export default function PostPage() {
                   <ThumbsUp className="h-4 w-4 mr-1" />
                   <span>{post.likes.length} likes</span>
                 </Button>
-
                 <PostReplyButton post={post} />
               </div>
-
-              <BookmarkButton postId={post.id} />
+              <div className="flex items-center gap-2">
+                {user?.uid === post.authorId && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsEditModalOpen(true)}
+                    title="Edit post"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                )}
+                <BookmarkButton postId={post.id} />
+              </div>
             </div>
           </div>
 
@@ -317,6 +325,12 @@ export default function PostPage() {
           title={post.title}
         />
       )}
+
+      <PostEditModal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        post={post}
+      />
     </>
-  )
+  );
 }
