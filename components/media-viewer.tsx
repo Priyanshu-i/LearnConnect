@@ -227,67 +227,6 @@ export function MediaViewer({ isOpen, onClose, mediaUrl, mediaType, title }: Med
         return (
           <div className="flex flex-col h-full" ref={containerRef}>
             <Tabs defaultValue="document" className="w-full h-full">
-              <div className="flex justify-between items-center mb-2 border-b pb-2">
-                <TabsList>
-                  <TabsTrigger value="document">Document</TabsTrigger>
-                  <TabsTrigger value="thumbnails">Thumbnails</TabsTrigger>
-                </TabsList>
-
-                <div className="flex items-center">
-                  <div className="flex items-center mr-4">
-                    <Button variant="outline" size="sm" onClick={handlePrevPage} disabled={currentPage <= 1}>
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <span className="mx-2 text-sm">
-                      Page {currentPage} of {totalPages}
-                    </span>
-                    <Button variant="outline" size="sm" onClick={handleNextPage} disabled={currentPage >= totalPages}>
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="sm" onClick={handleZoomOut}>
-                      <ZoomOut className="h-4 w-4" />
-                    </Button>
-                    <span className="text-xs w-12 text-center">{Math.round(zoomLevel * 100)}%</span>
-                    <Button variant="ghost" size="sm" onClick={handleZoomIn}>
-                      <ZoomIn className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={handleRotate}>
-                      <RotateCw className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={handleToggleFullscreen}>
-                      {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={handlePrint}>
-                      <Printer className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center mb-2">
-                <Input
-                  placeholder="Search in document..."
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                  className="max-w-xs mr-2"
-                />
-                {searchResults.length > 0 && (
-                  <div className="flex items-center">
-                    <Button variant="outline" size="sm" onClick={handlePrevSearchResult}>
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                    <span className="mx-2 text-xs">
-                      {currentSearchIndex + 1} of {searchResults.length}
-                    </span>
-                    <Button variant="outline" size="sm" onClick={handleNextSearchResult}>
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-              </div>
 
               <TabsContent value="document" className="flex-1 relative mt-0">
                 <PDFRenderer

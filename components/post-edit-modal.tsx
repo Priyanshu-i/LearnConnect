@@ -193,7 +193,7 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
                 </Button>
 
                 {mediaType === "image" || mediaType === "gif" ? (
-                  <ImageIcon
+                  <img
                     src={mediaURL || "/placeholder.svg"}
                     alt="Post media"
                     className="max-h-[300px] mx-auto object-contain rounded-md"

@@ -163,14 +163,14 @@ export function PostCard({ post, currentUser }: PostCardProps) {
           </div>
         </CardHeader>
 
-        <Link href={`/post/${post.id}`}>
           <CardContent className="pb-2">
+        <Link href={`/post/${post.id}`}>
             <CardTitle className="text-xl mb-2">{post.title}</CardTitle>
+        </Link>
             <p className="line-clamp-3 mb-3">{post.content}</p>
 
             {renderMediaPreview()}
           </CardContent>
-        </Link>
 
         <CardFooter className="flex justify-between pt-0">
           <div className="flex items-center gap-4">

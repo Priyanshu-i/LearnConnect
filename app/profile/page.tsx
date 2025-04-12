@@ -1,267 +1,130 @@
 "use client"
-
+import React from "react"
+import { FollowingModal } from "@/components/following-modal";
 import { useEffect, useState } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/hooks/use-auth"
 import { Navbar } from "@/components/navbar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent } from "@/components/ui/card"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { FollowersModal } from "@/components/followers-modal"
 import { PostCard } from "@/components/post-card"
 import { UserActivity } from "@/components/user-activity"
-import { FollowersModal } from "@/components/followers-modal"
-import {
-  doc,
-  getDoc,
-  collection,
-  query,
-  where,
-  getDocs,
-  orderBy,
-  updateDoc,
-  arrayUnion,
-  arrayRemove,
-  addDoc,
-} from "firebase/firestore"
-import { db } from "@/lib/firebase"
-import type { Post, UserProfile } from "@/lib/types"
-import { CalendarDays, Link2, MapPin, UserPlus, UserMinus, Users } from "lucide-react"
+import { CalendarDays, Link2, MapPin, Pencil } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import type { Post, UserProfile } from "@/lib/types"
+import { doc, getDoc, updateDoc, collection, query, where, getDocs, orderBy } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 
-export default function UserProfilePage() {
-  const { userId } = useParams<{ userId: string }>()
+export default function MyProfile() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [userPosts, setUserPosts] = useState<Post[]>([])
-  const [isFollowing, setIsFollowing] = useState(false)
-  const [canMessage, setCanMessage] = useState(false)
-  const [followerCount, setFollowerCount] = useState(0)
-  const [followingCount, setFollowingCount] = useState(0)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editForm, setEditForm] = useState({
+    displayName: "",
+    bio: "",
+    location: "",
+    website: "",
+  })
+  const [showFollowersModal, setShowFollowersModal] = useState(false);
+  const [showFollowingModal, setShowFollowingModal] = useState(false);
+  const [showContactsModal, setShowContactsModal] = useState(false);
   const [loading, setLoading] = useState(true)
-  const [isFollowersModalOpen, setIsFollowersModalOpen] = useState(false)
-  const [isFollowingModalOpen, setIsFollowingModalOpen] = useState(false)
   const { user } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
 
-  const isOwnProfile = user?.uid === userId
-
   useEffect(() => {
-    if (!userId) return
+    if (!user) {
+      router.push("/profile")
+      return
+    }
 
-    async function fetchUserProfile() {
+    async function fetchUserData() {
       try {
-        setLoading(true)
-        const userDocRef = doc(db, "users", userId as string)
+        if(!user) return
+        const userDocRef = doc(db, "users", user.uid)
         const userDoc = await getDoc(userDocRef)
 
         if (userDoc.exists()) {
           const userData = userDoc.data() as UserProfile
           setUserProfile(userData)
-
-          // Check if current user is following this user
-          if (user && userData.followers) {
-            setIsFollowing(userData.followers.includes(user.uid))
-            setFollowerCount(userData.followers.length)
-          }
-
-          if (userData.following) {
-            setFollowingCount(userData.following.length)
-          }
-
-          // Check if they can message each other (mutual follow)
-          if (user && user.uid !== userId) {
-            const currentUserDoc = await getDoc(doc(db, "users", user.uid))
-            if (currentUserDoc.exists()) {
-              const currentUserData = currentUserDoc.data() as UserProfile
-              const mutualFollow =
-                (userData.followers?.includes(user.uid) || false) &&
-                (currentUserData.followers?.includes(userId as string) || false)
-              setCanMessage(mutualFollow)
-            }
-          }
-        } else {
-          toast({
-            title: "User not found",
-            description: "The requested user profile does not exist",
-            variant: "destructive",
+          setEditForm({
+            displayName: userData.displayName,
+            bio: userData.bio || "",
+            location: userData.location || "",
+            website: userData.website || "",
           })
-          router.push("/")
         }
-      } catch (error) {
-        console.error("Error fetching user profile:", error)
-      }
-    }
 
-    async function fetchUserPosts() {
-      try {
-        const postsQuery = query(collection(db, "posts"), where("authorId", "==", userId), orderBy("createdAt", "desc"))
+        // Fetch user posts
+        const postsQuery = query(
+          collection(db, "posts"),
+          where("authorId", "==", user.uid),
+          orderBy("createdAt", "desc")
+        )
 
         const querySnapshot = await getDocs(postsQuery)
         const posts: Post[] = []
-
         querySnapshot.forEach((doc) => {
-          posts.push({
-            id: doc.id,
-            ...(doc.data() as Omit<Post, "id">),
-          })
+          posts.push({ id: doc.id, ...(doc.data() as Omit<Post, "id">) })
         })
 
         setUserPosts(posts)
       } catch (error) {
-        console.error("Error fetching user posts:", error)
+        console.error("Error fetching user data:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load profile data",
+          variant: "destructive",
+        })
       } finally {
         setLoading(false)
       }
     }
 
-    fetchUserProfile()
-    fetchUserPosts()
-  }, [userId, user, router, toast])
+    fetchUserData()
+  }, [user, router, toast])
 
-  const handleFollowToggle = async () => {
+  const handleEditSubmit = async () => {
     if (!user || !userProfile) return
 
     try {
-      const userDocRef = doc(db, "users", userId as string)
-      const currentUserRef = doc(db, "users", user.uid)
+      const userDocRef = doc(db, "users", user.uid)
+      await updateDoc(userDocRef, {
+        displayName: editForm.displayName,
+        bio: editForm.bio,
+        location: editForm.location,
+        website: editForm.website,
+      })
 
-      if (isFollowing) {
-        // Unfollow
-        await updateDoc(userDocRef, {
-          followers: arrayRemove(user.uid),
-        })
+      setUserProfile({
+        ...userProfile,
+        ...editForm,
+      })
+      setIsEditing(false)
 
-        await updateDoc(currentUserRef, {
-          following: arrayRemove(userId),
-        })
-
-        setIsFollowing(false)
-        setFollowerCount((prev) => prev - 1)
-        setCanMessage(false)
-
-        toast({
-          title: "Unfollowed",
-          description: `You are no longer following ${userProfile.displayName}`,
-        })
-      } else {
-        // Follow
-        await updateDoc(userDocRef, {
-          followers: arrayUnion(user.uid),
-        })
-
-        await updateDoc(currentUserRef, {
-          following: arrayUnion(userId),
-        })
-
-        setIsFollowing(true)
-        setFollowerCount((prev) => prev + 1)
-
-        // Check if they now follow each other
-        const targetUserDoc = await getDoc(userDocRef)
-        if (targetUserDoc.exists()) {
-          const targetUserData = targetUserDoc.data() as UserProfile
-          if (targetUserData.following?.includes(user.uid)) {
-            setCanMessage(true)
-          }
-        }
-
-        toast({
-          title: "Following",
-          description: `You are now following ${userProfile.displayName}`,
-        })
-
-        // Create follow request notification if they don't follow you back
-        if (!canMessage) {
-          const followRequestRef = collection(db, "followRequests")
-          await addDoc(followRequestRef, {
-            id: `follow_${userId}`,
-            senderId: user.uid,
-            senderName: user.displayName,
-            senderPhotoURL: user.photoURL,
-            recipientId: userId,
-            timestamp: Date.now(),
-            status: "pending",
-          })
-        }
-      }
+      toast({
+        title: "Profile updated",
+        description: "Your profile has been successfully updated",
+      })
     } catch (error) {
-      console.error("Error updating follow status:", error)
+      console.error("Error updating profile:", error)
       toast({
         title: "Error",
-        description: "Failed to update follow status. Please try again.",
+        description: "Failed to update profile",
         variant: "destructive",
       })
     }
   }
 
-  const handleMessageUser = () => {
-    if (!canMessage) {
-      toast({
-        title: "Cannot message",
-        description: "You can only message users who follow you and whom you follow",
-        variant: "destructive",
-      })
-      return
-    }
-
-    router.push("/chat")
-  }
-
-  if (loading) {
-    return (
-      <>
-        <Navbar />
-        <div className="container mx-auto px-4 py-8">
-          <div className="max-w-4xl mx-auto">
-            <Card className="mb-8">
-              <CardContent className="p-6">
-                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
-                  <Skeleton className="h-24 w-24 rounded-full" />
-                  <div className="flex-1 space-y-4 text-center sm:text-left">
-                    <Skeleton className="h-8 w-48" />
-                    <Skeleton className="h-4 w-full" />
-                    <Skeleton className="h-4 w-3/4" />
-                    <div className="flex justify-center sm:justify-start gap-4">
-                      <Skeleton className="h-10 w-24" />
-                      <Skeleton className="h-10 w-24" />
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Tabs defaultValue="posts">
-              <TabsList className="mb-6">
-                <TabsTrigger value="posts">Posts</TabsTrigger>
-                <TabsTrigger value="activity">Activity</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="posts">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {Array.from({ length: 4 }).map((_, i) => (
-                    <Skeleton key={i} className="h-64 w-full" />
-                  ))}
-                </div>
-              </TabsContent>
-            </Tabs>
-          </div>
-        </div>
-      </>
-    )
-  }
-
-  if (!userProfile) {
-    return (
-      <>
-        <Navbar />
-        <div className="container mx-auto px-4 py-8 text-center">
-          <h2 className="text-2xl font-bold mb-4">User not found</h2>
-          <Button onClick={() => router.push("/")}>Back to Home</Button>
-        </div>
-      </>
-    )
+  if (!user || loading) {
+    return <div>Loading...</div>
   }
 
   return (
@@ -270,99 +133,114 @@ export default function UserProfilePage() {
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
           <Card className="mb-8">
-            <CardContent className="p-6">
-              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+            <CardHeader>
+              <div className="flex items-start gap-6">
                 <Avatar className="h-24 w-24">
-                  <AvatarImage src={userProfile.photoURL || ""} />
-                  <AvatarFallback>{userProfile.displayName.charAt(0)}</AvatarFallback>
+                  <AvatarImage src={user.photoURL || ""} />
+                  <AvatarFallback>{user.displayName?.charAt(0) || "U"}</AvatarFallback>
                 </Avatar>
 
-                <div className="flex-1 space-y-4 text-center sm:text-left">
-                  <div>
-                    <h1 className="text-2xl font-bold">{userProfile.displayName}</h1>
-                    <p className="text-muted-foreground">{userProfile.email}</p>
-                  </div>
-
-                  {userProfile.bio && <p>{userProfile.bio}</p>}
-
-                  <div className="flex flex-wrap gap-4 justify-center sm:justify-start text-sm text-muted-foreground">
-                    {userProfile.location && (
-                      <div className="flex items-center">
-                        <MapPin className="h-4 w-4 mr-1" />
-                        <span>{userProfile.location}</span>
-                      </div>
-                    )}
-
-                    {userProfile.website && (
-                      <div className="flex items-center">
-                        <Link2 className="h-4 w-4 mr-1" />
-                        <a
-                          href={
-                            userProfile.website.startsWith("http")
-                              ? userProfile.website
-                              : `https://${userProfile.website}`
-                          }
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="hover:underline text-primary"
-                        >
-                          {userProfile.website.replace(/^https?:\/\//, "")}
-                        </a>
-                      </div>
-                    )}
-
-                    <div className="flex items-center">
-                      <CalendarDays className="h-4 w-4 mr-1" />
-                      <span>Joined {new Date(userProfile.createdAt).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-6 justify-center sm:justify-start">
+                {isEditing ? (
+                  <div className="flex-1 space-y-4">
                     <div>
-                      <span className="font-bold">{userPosts.length}</span>
-                      <span className="text-muted-foreground ml-1">Posts</span>
+                      <Label htmlFor="displayName">Display Name</Label>
+                      <Input
+                        id="displayName"
+                        value={editForm.displayName}
+                        onChange={(e) => setEditForm({ ...editForm, displayName: e.target.value })}
+                      />
                     </div>
-                    <button className="hover:underline cursor-pointer" onClick={() => setIsFollowersModalOpen(true)}>
-                      <span className="font-bold">{followerCount}</span>
-                      <span className="text-muted-foreground ml-1">Followers</span>
-                    </button>
-                    <button className="hover:underline cursor-pointer" onClick={() => setIsFollowingModalOpen(true)}>
-                      <span className="font-bold">{followingCount}</span>
-                      <span className="text-muted-foreground ml-1">Following</span>
-                    </button>
+                    <div>
+                      <Label htmlFor="bio">Bio</Label>
+                      <Textarea
+                        id="bio"
+                        value={editForm.bio}
+                        onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="location">Location</Label>
+                      <Input
+                        id="location"
+                        value={editForm.location}
+                        onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="website">Website</Label>
+                      <Input
+                        id="website"
+                        value={editForm.website}
+                        onChange={(e) => setEditForm({ ...editForm, website: e.target.value })}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button onClick={handleEditSubmit}>Save Changes</Button>
+                      <Button variant="outline" onClick={() => setIsEditing(false)}>
+                        Cancel
+                      </Button>
+                    </div>
                   </div>
+                ) : (
+                  <div className="flex-1">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle className="text-2xl">{userProfile?.displayName}</CardTitle>
+                        <p className="text-muted-foreground">{user.email}</p>
+                      </div>
+                      <Button variant="outline" size="icon" onClick={() => setIsEditing(true)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    {isOwnProfile ? (
-                      <Button onClick={() => router.push("/profile")}>Edit Profile</Button>
-                    ) : (
-                      <>
-                        <Button onClick={handleFollowToggle} variant={isFollowing ? "outline" : "default"}>
-                          {isFollowing ? (
-                            <>
-                              <UserMinus className="h-4 w-4 mr-2" />
-                              Unfollow
-                            </>
-                          ) : (
-                            <>
-                              <UserPlus className="h-4 w-4 mr-2" />
-                              Follow
-                            </>
-                          )}
+                    {userProfile?.bio && <p className="mt-4">{userProfile.bio}</p>}
+
+                    <div className="flex flex-wrap gap-4 mt-4 text-sm text-muted-foreground">
+                      {userProfile?.location && (
+                        <div className="flex items-center">
+                          <MapPin className="h-4 w-4 mr-1" />
+                          <span>{userProfile.location}</span>
+                        </div>
+                      )}
+
+                      {userProfile?.website && (
+                        <div className="flex items-center">
+                          <Link2 className="h-4 w-4 mr-1" />
+                          <a
+                            href={userProfile.website.startsWith("http") ? userProfile.website : `https://${userProfile.website}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:underline text-primary"
+                          >
+                            {userProfile.website.replace(/^https?:\/\//, "")}
+                          </a>
+                        </div>
+                      )}
+
+                      <div className="flex items-center">
+                        <CalendarDays className="h-4 w-4 mr-1" />
+                        <span>Joined {new Date(userProfile?.createdAt || Date.now()).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-6 mt-6 items-center flex-wrap">
+                        <span className="gap-6">{userPosts.length} Posts</span>
+                        <Button variant="ghost" onClick={() => setShowFollowersModal(true)}>
+                          <span className="font-bold">{userProfile?.followers?.length || 0}</span>
+                          <span className="ml-1">Followers</span>
                         </Button>
-
-                        {canMessage && (
-                          <Button onClick={handleMessageUser} variant="outline">
-                            <Users className="h-4 w-4 mr-2" />
-                            Message
-                          </Button>
-                        )}
-                      </>
-                    )}
+                        <Button variant="ghost" onClick={() => setShowFollowingModal(true)}>
+                          <span className="font-bold">{userProfile?.following?.length || 0}</span>
+                          <span className="ml-1">Following</span>
+                        </Button>
+                        <Button variant="ghost" onClick={() => setShowContactsModal(true)}>
+                          <span className="ml-1">All Contacts</span>
+                        </Button>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
-            </CardContent>
+            </CardHeader>
           </Card>
 
           <Tabs defaultValue="posts">
@@ -381,37 +259,38 @@ export default function UserProfilePage() {
               ) : (
                 <Card>
                   <CardContent className="py-8 text-center">
-                    <p className="text-muted-foreground mb-4">No posts yet</p>
-                    {isOwnProfile && (
-                      <Button onClick={() => router.push("/create-post")}>Create Your First Post</Button>
-                    )}
+                    <p className="text-muted-foreground mb-4">You haven't created any posts yet.</p>
+                    <Button onClick={() => router.push("/create-post")}>Create Your First Post</Button>
                   </CardContent>
                 </Card>
               )}
             </TabsContent>
 
             <TabsContent value="activity">
-              <UserActivity userId={userId as string} />
+              <UserActivity userId={user.uid} />
             </TabsContent>
           </Tabs>
         </div>
       </div>
 
-      {/* Followers Modal */}
       <FollowersModal
-        isOpen={isFollowersModalOpen}
-        onClose={() => setIsFollowersModalOpen(false)}
-        userId={userId as string}
+        isOpen={showFollowersModal}
+        onClose={() => setShowFollowersModal(false)}
+        userId={user.uid}
         type="followers"
       />
 
-      {/* Following Modal */}
+      <FollowingModal
+        isOpen={showFollowingModal}
+        onClose={() => setShowFollowingModal(false)}
+        userId={user.uid}
+      />
+
       <FollowersModal
-        isOpen={isFollowingModalOpen}
-        onClose={() => setIsFollowingModalOpen(false)}
-        userId={userId as string}
-        type="following"
+        isOpen={showContactsModal}
+        onClose={() => setShowContactsModal(false)}
+        userId={user.uid}
+        type="contacts"
       />
     </>
-  )
-}
+    )}

@@ -9,17 +9,18 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore"
+import { doc, getDoc,getDocs, updateDoc, arrayUnion, arrayRemove, collection } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import type { UserProfile } from "@/lib/types"
 import { Search, UserPlus, UserMinus } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
+
 interface FollowersModalProps {
   isOpen: boolean
   onClose: () => void
   userId: string
-  type: "followers" | "following"
+  type: "followers" | "following" | "contacts"
 }
 
 export function FollowersModal({ isOpen, onClose, userId, type }: FollowersModalProps) {
@@ -48,7 +49,18 @@ export function FollowersModal({ isOpen, onClose, userId, type }: FollowersModal
         }
 
         const userData = userDoc.data() as UserProfile
-        const userIds = type === "followers" ? userData.followers || [] : userData.following || []
+        let userIds: string[] = []
+
+        if (type === "contacts") {
+          // Get all users except the current user
+          const allUsersSnapshot = await getDocs(collection(db, "users"))
+          userIds = allUsersSnapshot.docs
+            .filter((doc) => doc.id !== user?.uid)
+            .map((doc) => doc.id)
+        } else {
+          userIds = type === "followers" ? userData.followers || [] : userData.following || []
+        }
+
 
         // Get current user's following list
         let currentUserFollowing: string[] = []
@@ -176,7 +188,13 @@ export function FollowersModal({ isOpen, onClose, userId, type }: FollowersModal
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-md max-h-[80vh]">
         <DialogHeader>
-          <DialogTitle>{type === "followers" ? "Followers" : "Following"}</DialogTitle>
+        <DialogTitle>
+            {type === "followers"
+              ? "Followers"
+              : type === "following"
+              ? "Following"
+              : "All Contacts"}
+        </DialogTitle>
         </DialogHeader>
 
         <div className="relative mb-4">

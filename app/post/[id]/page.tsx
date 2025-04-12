@@ -169,13 +169,16 @@ export default function PostPage() {
   }
 
   const mediaType = getMediaType(post.mediaURL)
+  const handleViewProfile = () => {
+    router.push(`/profile/${post.authorId}`)
+  }
 
   return (
     <>
       <Navbar />
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-3xl mx-auto">
-          <Button variant="ghost" className="mb-4" onClick={() => router.back()}>
+          <Button variant="ghost" className="mb-4" onClick={() => router.push("/")}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
           </Button>
@@ -183,10 +186,12 @@ export default function PostPage() {
           <div className="bg-card rounded-lg shadow-sm p-6 mb-8">
             <h1 className="text-3xl font-bold mb-2">{post.title}</h1>
             <div className="flex items-center mb-6">
+            <div className="flex items-center gap-2 cursor-pointer" onClick={handleViewProfile}>
               <Avatar className="h-8 w-8 mr-2">
                 <AvatarImage src={post.authorPhotoURL || ""} />
                 <AvatarFallback>{post.authorName?.charAt(0) || "U"}</AvatarFallback>
               </Avatar>
+              </div>
               <div>
                 <p className="text-sm font-medium">{post.authorName}</p>
                 <p className="text-xs text-muted-foreground">

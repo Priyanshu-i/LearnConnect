@@ -81,6 +81,7 @@ export interface UserProfile {
   website?: string
   followers?: string[]
   following?: string[]
+  contacts?: string[];
 }
 
 export interface UserActivity {
