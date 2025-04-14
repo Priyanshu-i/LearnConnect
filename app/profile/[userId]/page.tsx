@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PostCard } from "@/components/post-card"
 import { UserActivity } from "@/components/user-activity"
+
 import {
   doc,
   getDoc,
@@ -22,6 +23,7 @@ import {
   updateDoc,
   arrayUnion,
   arrayRemove,
+  Timestamp,
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import type { Post, UserProfile } from "@/lib/types"
@@ -41,6 +43,8 @@ export default function UserProfilePage() {
   const { toast } = useToast()
 
   const isOwnProfile = user?.uid === userId
+
+  
 
   useEffect(() => {
     if (!userId) return
@@ -79,17 +83,25 @@ export default function UserProfilePage() {
 
     async function fetchUserPosts() {
       try {
+        const now = Timestamp.now()
+
         const postsQuery = query(collection(db, "posts"), where("authorId", "==", userId), orderBy("createdAt", "desc"))
 
         const querySnapshot = await getDocs(postsQuery)
         const posts: Post[] = []
 
         querySnapshot.forEach((doc) => {
-          posts.push({
-            id: doc.id,
-            ...(doc.data() as Omit<Post, "id">),
-          })
-        })
+           const data = doc.data() as Omit<Post, "id">;
+
+      // Check condition for expiresAt and add to posts
+      if (!data.expiresAt || data.expiresAt > now) {
+        posts.push({
+          id: doc.id,
+          ...data,
+        });
+      }
+    });
+
 
         setUserPosts(posts)
       } catch (error) {
@@ -181,7 +193,7 @@ export default function UserProfilePage() {
             <Tabs defaultValue="posts">
               <TabsList className="mb-6">
                 <TabsTrigger value="posts">Posts</TabsTrigger>
-                <TabsTrigger value="activity">Activity</TabsTrigger>
+                {/* <TabsTrigger value="activity">Activity</TabsTrigger> */}
               </TabsList>
 
               <TabsContent value="posts">
@@ -305,7 +317,7 @@ export default function UserProfilePage() {
           <Tabs defaultValue="posts">
             <TabsList className="mb-6">
               <TabsTrigger value="posts">Posts</TabsTrigger>
-              <TabsTrigger value="activity">Activity</TabsTrigger>
+              {/* <TabsTrigger value="activity">Activity</TabsTrigger> */}
             </TabsList>
 
             <TabsContent value="posts">
@@ -327,9 +339,9 @@ export default function UserProfilePage() {
               )}
             </TabsContent>
 
-            <TabsContent value="activity">
+            {/* <TabsContent value="activity">
               <UserActivity userId={userId as string} />
-            </TabsContent>
+            </TabsContent> */}
           </Tabs>
         </div>
       </div>

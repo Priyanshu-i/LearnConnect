@@ -13,12 +13,19 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, File, Trash, Upload, X } from "lucide-react";
+import { Camera, File, Trash, Upload, X, CalendarIcon, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { doc, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { Post } from "@/lib/types";
 import { useRouter } from "next/navigation";
+import { Switch } from "@/components/ui/switch";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns";
+import { CustomCalendarModal } from "./calendar-modal";
+import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface PostEditModalProps {
   isOpen: boolean;
@@ -36,6 +43,15 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [enableExpiration, setEnableExpiration] = useState(!!post.expiresAt);
+  const [expirationDate, setExpirationDate] = useState<Date | undefined>(
+    post.expiresAt ? new Date(post.expiresAt.toDate()) : undefined
+  );
+  const [expirationTime, setExpirationTime] = useState(
+    post.expiresAt
+      ? `${post.expiresAt.toDate().getHours().toString().padStart(2, "0")}:${post.expiresAt.toDate().getMinutes().toString().padStart(2, "0")}`
+      : "23:59"
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const router = useRouter();
@@ -65,7 +81,6 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
       return;
     }
 
-    // Upload to Cloudinary
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -109,17 +124,7 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
   const handleRemoveMedia = async () => {
     if (!mediaURL) return;
 
-    // Optionally delete from Cloudinary
     try {
-      // Extract public_id from Cloudinary URL
-      const urlParts = mediaURL.split("/");
-      const fileName = urlParts[urlParts.length - 1];
-      const publicId = fileName.split(".")[0];
-
-      // Note: Deletion requires server-side call with API secret for security
-      // For client-side demo, we'll assume media is removed from Firestore only
-      // In production, implement a serverless function to delete from Cloudinary
-
       setMediaURL("");
       setMediaType(null);
 
@@ -152,11 +157,20 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
     try {
       const postRef = doc(db, "posts", post.id);
 
+      let expiresAt: number | null = null;
+      if (enableExpiration && expirationDate) {
+        const [hours, minutes] = expirationTime.split(":").map(Number);
+        const expirationDateTime = new Date(expirationDate);
+        expirationDateTime.setHours(hours, minutes, 0, 0);
+        expiresAt = expirationDateTime.getTime();
+      }
+
       const updatedPost = {
         title,
         content,
         mediaURL: mediaURL || null,
         mediaType: mediaType || null,
+        expiresAt,
       };
 
       await updateDoc(postRef, updatedPost);
@@ -186,26 +200,10 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
     try {
       const postRef = doc(db, "posts", post.id);
 
-      // Delete media from Cloudinary if it exists
       if (post.mediaURL) {
-        // Extract public_id from Cloudinary URL
-        const urlParts = post.mediaURL.split("/");
-        const fileName = urlParts[urlParts.length - 1];
-        const publicId = fileName.split(".")[0];
-
-        // Note: Deletion requires a server-side API call due to API secret
-        // For this example, we'll skip Cloudinary deletion and delete from Firestore
-        // In production, call a serverless function like:
-        /*
-        await fetch("/api/cloudinary/delete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ publicId }),
-        });
-        */
+        // Note: Cloudinary deletion requires server-side API call
       }
 
-      // Delete post from Firestore
       await deleteDoc(postRef);
 
       toast({
@@ -228,14 +226,24 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
     }
   };
 
+  // Generate time options (every 30 minutes)
+  const timeOptions = [];
+  for (let hour = 0; hour < 24; hour++) {
+    for (const minute of [0, 30]) {
+      const formattedHour = hour.toString().padStart(2, "0");
+      const formattedMinute = minute.toString().padStart(2, "0");
+      timeOptions.push(`${formattedHour}:${formattedMinute}`);
+    }
+  }
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="sm:max-w-md md:max-w-3xl max-h-[80vh] overflow-y-auto p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle>Edit Post</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-6 py-4">
           <div className="space-y-2">
             <Label htmlFor="title">Title</Label>
             <Input
@@ -259,7 +267,6 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
 
           <div className="space-y-2">
             <Label>Media</Label>
-
             {mediaURL ? (
               <div className="relative border rounded-md p-4">
                 <Button
@@ -270,12 +277,11 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
                 >
                   <X className="h-4 w-4" />
                 </Button>
-
                 {mediaType === "image" || mediaType === "gif" ? (
                   <img
                     src={mediaURL}
                     alt="Post media"
-                    className="max-h-[300px] mx-auto object-contain rounded-md"
+                    className="max-h-[300px] w-full object-contain rounded-md"
                   />
                 ) : mediaType === "video" ? (
                   <video
@@ -302,7 +308,6 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
                   <TabsTrigger value="camera">Camera</TabsTrigger>
                   <TabsTrigger value="url">URL</TabsTrigger>
                 </TabsList>
-
                 <TabsContent value="upload" className="p-4 border rounded-md">
                   <div className="flex flex-col items-center justify-center">
                     <input
@@ -325,7 +330,6 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
                     </Button>
                   </div>
                 </TabsContent>
-
                 <TabsContent value="camera" className="p-4 border rounded-md">
                   <div className="flex flex-col items-center justify-center">
                     <Button
@@ -346,7 +350,6 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
                     </Button>
                   </div>
                 </TabsContent>
-
                 <TabsContent value="url" className="p-4 border rounded-md">
                   <div className="space-y-4">
                     <div className="space-y-2">
@@ -382,9 +385,79 @@ export function PostEditModal({ isOpen, onClose, post }: PostEditModalProps) {
               </Tabs>
             )}
           </div>
+
+          <div className="space-y-4 pt-2 border-t">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label htmlFor="expiration-toggle">Post Expiration</Label>
+                <p className="text-xs text-muted-foreground">
+                  Set a time for this post to automatically expire
+                </p>
+              </div>
+              <Switch
+                id="expiration-toggle"
+                checked={enableExpiration}
+                onCheckedChange={setEnableExpiration}
+              />
+            </div>
+
+            {enableExpiration && (
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div className="space-y-2">
+      <Label>Expiration Date</Label>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            className={cn(
+              "w-full justify-start text-left font-normal",
+              !expirationDate && "text-muted-foreground"
+            )}
+          >
+            <CalendarIcon className="mr-2 h-4 w-4" />
+            {expirationDate ? format(expirationDate, "PPP") : "Select date"}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-auto p-0"
+          style={{
+            position: 'absolute',
+            transform: 'translate(-50%, -110%)', // Combines both transformations
+            bottom: '100%',
+            left: '50%',
+            maxWidth: '90vw', // Ensures it stays within the screen on mobile
+          }}
+        >
+          <CustomCalendarModal
+            selectedDate={expirationDate ?? null}
+            onSelect={(date) => setExpirationDate(date || undefined)}
+            disabled={(date) => date < new Date()}
+          />
+        </PopoverContent>
+      </Popover>
+    </div>
+
+    <div className="space-y-2">
+      <Label>Expiration Time</Label>
+      <Select value={expirationTime} onValueChange={setExpirationTime}>
+        <SelectTrigger>
+          <SelectValue placeholder="Select time" />
+        </SelectTrigger>
+        <SelectContent>
+          {timeOptions.map((time) => (
+            <SelectItem key={time} value={time}>
+              {time}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  </div>
+)}
+          </div>
         </div>
 
-        <DialogFooter className="flex justify-between">
+        <DialogFooter className="flex flex-col sm:flex-row justify-between gap-4">
           <div>
             {showDeleteConfirm ? (
               <div className="flex items-center gap-2">

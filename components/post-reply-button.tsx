@@ -7,10 +7,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/lib/hooks/use-auth"
 import { useToast } from "@/hooks/use-toast"
 import { doc, getDoc, collection, addDoc } from "firebase/firestore"
-import { ref, push, set } from "firebase/database"
+import { ref, push, set, get } from "firebase/database"
 import { db, rtdb } from "@/lib/firebase"
-import { MessageSquare, Send } from "lucide-react"
+import { MessageCircleReply, Send } from "lucide-react"
 import type { Post } from "@/lib/types"
+import { useRouter } from "next/navigation"
+import { SignInModal } from "./sign-in-modal"
 
 interface PostReplyButtonProps {
   post: Post
@@ -20,11 +22,13 @@ interface PostReplyButtonProps {
 
 export function PostReplyButton({ post, variant = "ghost", size = "sm" }: PostReplyButtonProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isSignInModalOpen, setIsSignInModalOpen] = useState(false)
   const [message, setMessage] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [canMessage, setCanMessage] = useState(false)
   const { user } = useAuth()
   const { toast } = useToast()
+  const router = useRouter()
 
   useEffect(() => {
     async function checkMessagingPermission() {
@@ -71,6 +75,18 @@ export function PostReplyButton({ post, variant = "ghost", size = "sm" }: PostRe
       // Create a unique chat ID (sorted user IDs to ensure consistency)
       const chatId = [user.uid, post.authorId].sort().join("_")
 
+      // Check if chat already exists
+      const chatRef = ref(rtdb, `chats/${chatId}`)
+      const chatSnapshot = await get(chatRef)
+
+      if (!chatSnapshot.exists()) {
+        // Create new chat if it doesn't exist
+        await set(chatRef, {
+          participants: [user.uid, post.authorId],
+          createdAt: Date.now(),
+        })
+      }
+
       // Add message to chat
       const messagesRef = ref(rtdb, `chats/${chatId}/messages`)
       const newMessageRef = push(messagesRef)
@@ -88,11 +104,11 @@ export function PostReplyButton({ post, variant = "ghost", size = "sm" }: PostRe
       })
 
       // Update chat room
-      const chatRoomRef = ref(rtdb, `chats/${chatId}`)
-      await set(chatRoomRef, {
+      await set(chatRef, {
         participants: [user.uid, post.authorId],
         lastMessage: message,
         lastMessageTimestamp: Date.now(),
+        [`unreadCount.${post.authorId.replace(/[.#$/\[\]]/g, "_")}`]: (chatSnapshot.val()?.unreadCount?.[post.authorId.replace(/[.#$/\[\]]/g, "_")] || 0) + 1,
       })
 
       // Add to user activity
@@ -111,6 +127,9 @@ export function PostReplyButton({ post, variant = "ghost", size = "sm" }: PostRe
 
       setMessage("")
       setIsDialogOpen(false)
+
+      // Navigate to chat with this user
+      router.push(`/chat?chatId=${chatId}`)
     } catch (error) {
       console.error("Error sending message:", error)
       toast({
@@ -125,11 +144,7 @@ export function PostReplyButton({ post, variant = "ghost", size = "sm" }: PostRe
 
   const handleOpenDialog = () => {
     if (!user) {
-      toast({
-        title: "Sign in required",
-        description: "Please sign in to reply to posts",
-        variant: "destructive",
-      })
+      setIsSignInModalOpen(true)
       return
     }
 
@@ -147,8 +162,8 @@ export function PostReplyButton({ post, variant = "ghost", size = "sm" }: PostRe
 
   return (
     <>
-      <Button variant={variant} size={size} onClick={handleOpenDialog} disabled={!user || !canMessage}>
-        <MessageSquare className={`h-4 w-4 ${size !== "icon" ? "mr-1" : ""}`} />
+      <Button variant={variant} size={size} onClick={handleOpenDialog}>
+        <MessageCircleReply className={`h-4 w-4 ${size !== "icon" ? "mr-1" : ""}`} />
         {size !== "icon" && <span>Reply</span>}
       </Button>
 
@@ -183,6 +198,12 @@ export function PostReplyButton({ post, variant = "ghost", size = "sm" }: PostRe
           </div>
         </DialogContent>
       </Dialog>
+
+      <SignInModal
+        isOpen={isSignInModalOpen}
+        onClose={() => setIsSignInModalOpen(false)}
+        message="Sign in to reply to posts and send messages."
+      />
     </>
   )
 }

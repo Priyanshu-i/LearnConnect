@@ -17,6 +17,7 @@ import { PostEditModal } from "@/components/post-edit-modal";
 import type { Comment, Post } from "@/lib/types";
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { Timestamp } from "firebase/firestore";
 
 export default function PostPage() {
   const { id } = useParams<{ id: string }>();
@@ -25,7 +26,7 @@ export default function PostPage() {
   const [comment, setComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isMediaViewerOpen, setIsMediaViewerOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false); // Moved state here
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const { user } = useAuth();
   const router = useRouter();
 
@@ -37,10 +38,20 @@ export default function PostPage() {
         const postDoc = await getDoc(doc(db, "posts", id as string));
 
         if (postDoc.exists()) {
+          const postData = postDoc.data();
           setPost({
             id: postDoc.id,
-            ...(postDoc.data() as Omit<Post, "id">),
-          });
+            ...postData,
+            createdAt: postData.createdAt?.toDate
+              ? postData.createdAt.toDate().getTime()
+              : Date.now(), // Fallback to current time
+            comments: postData.comments?.map((c: any) => ({
+              ...c,
+              createdAt: c.createdAt?.toDate
+                ? c.createdAt.toDate().getTime()
+                : Date.now(),
+            })) || [],
+          } as Post);
         } else {
           router.push("/");
         }
@@ -94,7 +105,7 @@ export default function PostPage() {
     try {
       const newComment: Comment = {
         id: Date.now().toString(),
-        content: comment,
+        content: comment.trim(),
         authorId: user.uid,
         authorName: user.displayName || "Anonymous",
         authorPhotoURL: user.photoURL || undefined,
@@ -103,7 +114,10 @@ export default function PostPage() {
 
       const postRef = doc(db, "posts", post.id);
       await updateDoc(postRef, {
-        comments: arrayUnion(newComment),
+        comments: arrayUnion({
+          ...newComment,
+          createdAt: Timestamp.fromMillis(newComment.createdAt),
+        }),
       });
 
       setPost({
@@ -193,7 +207,9 @@ export default function PostPage() {
               <div>
                 <p className="text-sm font-medium">{post.authorName}</p>
                 <p className="text-xs text-muted-foreground">
-                  {formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}
+                  {typeof post.createdAt === "number" && !isNaN(post.createdAt)
+                    ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })
+                    : "Unknown date"}
                 </p>
               </div>
             </div>
@@ -301,7 +317,9 @@ export default function PostPage() {
                       <div>
                         <p className="text-sm font-medium">{comment.authorName}</p>
                         <p className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })}
+                          {typeof comment.createdAt === "number" && !isNaN(comment.createdAt)
+                            ? formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })
+                            : "Unknown date"}
                         </p>
                       </div>
                     </div>

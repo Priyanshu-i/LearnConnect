@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label"
 import { FollowersModal } from "@/components/followers-modal"
 import { PostCard } from "@/components/post-card"
 import { UserActivity } from "@/components/user-activity"
+import { ActivityManager } from "@/components/activity-manager";
 import { CalendarDays, Link2, MapPin, Pencil } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import type { Post, UserProfile } from "@/lib/types"
@@ -188,9 +189,14 @@ export default function MyProfile() {
                         <CardTitle className="text-2xl">{userProfile?.displayName}</CardTitle>
                         <p className="text-muted-foreground">{user.email}</p>
                       </div>
-                      <Button variant="outline" size="icon" onClick={() => setIsEditing(true)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
+                      <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-8 w-8 sm:h-6 sm:w-6 md:h-5 md:w-5 p-0" // Responsive sizing
+                      onClick={() => setIsEditing(true)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
                     </div>
 
                     {userProfile?.bio && <p className="mt-4">{userProfile.bio}</p>}
@@ -249,6 +255,7 @@ export default function MyProfile() {
             <TabsList className="mb-6">
               <TabsTrigger value="posts">Posts</TabsTrigger>
               <TabsTrigger value="activity">Activity</TabsTrigger>
+              {/* <TabsTrigger value="Manage-activities">Manage Activities</TabsTrigger> */}
             </TabsList>
 
             <TabsContent value="posts">
@@ -271,6 +278,7 @@ export default function MyProfile() {
             <TabsContent value="activity">
               <UserActivity userId={user.uid} />
             </TabsContent>
+            
           </Tabs>
         </div>
       </div>

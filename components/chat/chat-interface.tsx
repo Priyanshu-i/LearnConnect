@@ -78,7 +78,7 @@ export function ChatInterface() {
 
     async function fetchUserProfile() {
       try {
-        if (!user) return;
+        if (!user) return
         const userDocRef = doc(db, "users", user.uid)
         const userDoc = await getDoc(userDocRef)
 
@@ -87,7 +87,6 @@ export function ChatInterface() {
         } else {
           // Create user profile if it doesn't exist
           const newUserProfile: UserProfile = {
-            
             id: user.uid,
             displayName: user.displayName || "Anonymous User",
             email: user.email || "",
@@ -121,7 +120,7 @@ export function ChatInterface() {
 
         usersSnapshot.forEach((doc) => {
           const userData = doc.data() as UserProfile
-          if (!user) return;
+          if (!user) return
           if (doc.id !== user.uid) {
             usersList.push({
               id: doc.id,
@@ -145,7 +144,7 @@ export function ChatInterface() {
     // Fetch chat folders
     async function fetchChatFolders() {
       try {
-        if (!user) return;
+        if (!user) return
         const foldersRef = ref(rtdb, `users/${user.uid}/chatFolders`)
         onValue(foldersRef, (snapshot) => {
           const foldersData = snapshot.val()
@@ -177,7 +176,7 @@ export function ChatInterface() {
             Object.keys(groupsData).forEach((key) => {
               const group = groupsData[key]
               // Only include groups where the current user is a member
-              if (!user) return;
+              if (!user) return
               if (group.members && group.members.includes(user.uid)) {
                 groupsList.push({
                   id: key,
@@ -187,6 +186,7 @@ export function ChatInterface() {
                   createdBy: group.createdBy,
                   createdAt: group.createdAt,
                   blockedMembers: group.blockedMembers || [],
+                  updatedAt: 0
                 })
               }
             })
@@ -204,7 +204,7 @@ export function ChatInterface() {
     // Fetch unread messages
     async function fetchUnreadMessages() {
       try {
-        if (!user) return;
+        if (!user) return
         const unreadRef = ref(rtdb, `users/${user.uid}/unreadMessages`)
         onValue(unreadRef, (snapshot) => {
           const unreadData = snapshot.val()
@@ -622,10 +622,24 @@ export function ChatInterface() {
     }
   }
 
+  // Update handleClearChat to check for admin permissions
   const handleClearChat = async () => {
     if (!user || !selectedChat) return
 
     try {
+      // For group chats, check if user is admin
+      if (selectedChatType === "group") {
+        const group = chatGroups.find((g) => g.id === selectedChat)
+        if (group && !isUserAdminInGroup(group.id, user.uid)) {
+          toast({
+            title: "Permission denied",
+            description: "Only group admins can clear chat history",
+            variant: "destructive",
+          })
+          return
+        }
+      }
+
       let chatMessagesRef
       if (selectedChatType === "direct") {
         chatMessagesRef = ref(rtdb, `chats/${selectedChat}/messages`)
@@ -1011,6 +1025,27 @@ export function ChatInterface() {
     }
   }
 
+  // Update the isUserAdminInGroup function to be more robust
+  const isUserAdminInGroup = (groupId: string, userId: string): boolean => {
+    const group = chatGroups.find((g) => g.id === groupId)
+    if (!group) return false
+
+    // Check if user is the creator
+    if (group.createdBy === userId) return true
+
+    // Check if user is in admins array or object
+    if (group.admins) {
+      if (Array.isArray(group.admins)) {
+        return group.admins.includes(userId)
+      } else {
+        return !!group.admins[userId]
+      }
+    }
+
+    return false
+  }
+
+  // Update handleRemoveUserFromGroup to use the isUserAdminInGroup function
   const handleRemoveUserFromGroup = async (groupId: string, userId: string) => {
     if (!user) return
 
@@ -1018,22 +1053,59 @@ export function ChatInterface() {
       const group = chatGroups.find((g) => g.id === groupId)
       if (!group) return
 
-      // Check if current user is admin
-      if (group.createdBy !== user.uid) {
+      // Check if current user is admin or creator using the helper function
+      if (!isUserAdminInGroup(groupId, user.uid)) {
         toast({
           title: "Permission denied",
-          description: "Only the group creator can remove members.",
+          description: "Only group admins can remove members.",
           variant: "destructive",
         })
         return
       }
 
-      // Remove user from group
+      // Prevent admins from removing the creator
+      if (userId === group.createdBy && user.uid !== group.createdBy) {
+        toast({
+          title: "Permission denied",
+          description: "You cannot remove the group creator.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Remove user from group members
       const groupRef = ref(rtdb, `chatGroups/${groupId}`)
       const updatedMembers = group.members.filter((id) => id !== userId)
-      await update(groupRef, {
+
+      // Prepare update data
+      const updateData: any = {
         members: updatedMembers,
-      })
+      }
+
+      // Check if the user being removed is an admin, and only update admins if they are
+      const adminsRef = ref(rtdb, `chatGroups/${groupId}/admins`)
+      const adminsSnapshot = await get(adminsRef)
+      const adminsData = adminsSnapshot.val()
+
+      if (adminsData) {
+        // Handle both array and object formats for admins
+        if (Array.isArray(adminsData)) {
+          // If admins is an array, only filter out the removed user if they're in it
+          if (adminsData.includes(userId)) {
+            updateData.admins = adminsData.filter((id) => id !== userId)
+          }
+        } else if (typeof adminsData === "object") {
+          // If admins is an object, only remove the specific user's entry
+          if (adminsData[userId]) {
+            const newAdmins = { ...adminsData }
+            delete newAdmins[userId]
+            updateData.admins = newAdmins
+          }
+        }
+      }
+
+      // Update the group with the changes
+      await update(groupRef, updateData)
 
       // Add system message about user being removed
       const removedUser = users.find((u) => u.id === userId)
@@ -1385,6 +1457,7 @@ export function ChatInterface() {
     return null
   }
 
+  // Update the renderChatHeader function to show group settings for admins too
   const renderChatHeader = () => {
     if (!selectedChat) return null
 
@@ -1479,6 +1552,9 @@ export function ChatInterface() {
       const group = chatGroups.find((g) => g.id === selectedChat)
       if (!group) return null
 
+      // Check if current user is admin or creator
+      const isAdmin = user ? isUserAdminInGroup(group.id, user.uid) : false
+
       return (
         <div className="flex items-center justify-between p-3 border-b">
           <div className="flex items-center cursor-pointer" onClick={() => setIsGroupSettingsOpen(true)}>
@@ -1522,10 +1598,12 @@ export function ChatInterface() {
               </PopoverTrigger>
               <PopoverContent className="w-56" align="end">
                 <div className="space-y-1">
-                  <Button variant="ghost" className="w-full justify-start" onClick={() => handleClearChat()}>
-                    <Trash className="h-4 w-4 mr-2" />
-                    Clear chat
-                  </Button>
+                  {isAdmin && (
+                    <Button variant="ghost" className="w-full justify-start" onClick={() => handleClearChat()}>
+                      <Trash className="h-4 w-4 mr-2" />
+                      Clear chat
+                    </Button>
+                  )}
                   <Button variant="ghost" className="w-full justify-start" onClick={() => handleExportChat()}>
                     <Download className="h-4 w-4 mr-2" />
                     Export chat
@@ -1796,7 +1874,7 @@ export function ChatInterface() {
         ) : (
           // Chat list view
           <div className="flex flex-col h-full">
-            <div className="p-4 border-b">
+            <div className="sticky top-0 backdrop-blur-lg bg-transparent p-4 border-b">
               <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-bold">Chats</h1>
                 <Button variant="ghost" size="icon" onClick={() => setIsEditingProfile(true)}>
@@ -1814,7 +1892,7 @@ export function ChatInterface() {
             </div>
 
             <Tabs defaultValue="chats" className="flex-1 flex flex-col" onValueChange={setActiveTab}>
-              <div className="border-b">
+              <div className="sticky top-[130px] backdrop-blur-lg bg-transparent p-4 border-b">
                 <TabsList className="w-full">
                   <TabsTrigger value="chats" className="flex-1">
                     Chats
@@ -1839,7 +1917,7 @@ export function ChatInterface() {
               </TabsContent>
             </Tabs>
 
-            <div className="p-2 border-t flex justify-between">
+            <div className="sticky bottom-0 p-2 backdrop-blur-lg bg-transparent border-t flex justify-between">
               <Dialog open={isCreatingFolder} onOpenChange={setIsCreatingFolder}>
                 <DialogTrigger asChild>
                   <Button variant="outline">
@@ -2068,8 +2146,11 @@ export function ChatInterface() {
   return (
     <div className="h-[calc(100vh-64px)] flex">
       {/* Sidebar */}
-      <div className="w-80 border-r flex flex-col">
-        <div className="p-4 border-b">
+      <div
+        className="w-80 border-r flex flex-col overflow-auto"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+      >
+        <div className="sticky top-0 backdrop-blur-lg bg-transparent p-4 border-b ">
           <div className="flex items-center justify-between">
             <h1 className="text-2xl font-bold">Chats</h1>
             <Button variant="ghost" size="icon" onClick={() => setIsEditingProfile(true)}>
@@ -2087,7 +2168,7 @@ export function ChatInterface() {
         </div>
 
         <Tabs defaultValue="chats" className="flex-1 flex flex-col" onValueChange={setActiveTab}>
-          <div className="border-b">
+          <div className="sticky top-[130px] backdrop-blur-lg bg-transparent p-4 border-b">
             <TabsList className="w-full">
               <TabsTrigger value="chats" className="flex-1">
                 Chats
@@ -2112,7 +2193,7 @@ export function ChatInterface() {
           </TabsContent>
         </Tabs>
 
-        <div className="p-4 border-t flex justify-between">
+        <div className="sticky bottom-0 backdrop-blur-lg bg-transparent p-4 border-t flex justify-between ">
           <Dialog open={isCreatingFolder} onOpenChange={setIsCreatingFolder}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm">

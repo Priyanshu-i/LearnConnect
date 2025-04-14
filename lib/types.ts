@@ -1,15 +1,16 @@
 export interface Post {
-  id: string
-  title: string
-  content: string
-  authorId: string
-  authorName: string
-  authorPhotoURL?: string
-  createdAt: number
-  likes: string[]
-  comments?: Comment[]
-  mediaURL?: string
-  mediaType?: "image" | "video" | "pdf" | "gif" | null
+  id: string;
+  title: string;
+  content: string;
+  authorId: string;
+  authorName: string;
+  authorPhotoURL?: string;
+  createdAt: number; // Milliseconds since epoch for frontend
+  likes: string[];
+  comments?: Comment[];
+  mediaURL?: string;
+  mediaType?: "image" | "video" | "pdf" | "gif" | null;
+  expiresAt?: { toDate: () => Date } | null; // Firestore Timestamp
 }
 
 export interface Comment {
@@ -29,16 +30,8 @@ export interface ChatMessage {
   senderPhotoURL?: string
   timestamp: number
   reactions?: Record<string, string>
-  replyTo?: {
-    id: string
-    content: string
-    senderId: string
-    senderName: string
-  }
-  postReply?: {
-    postId: string
-    postTitle: string
-  }
+  replyTo?: { id: string; content: string; senderId: string; senderName: string }
+  postReply?: { postId: string; postTitle: string }
 }
 
 export interface ChatReaction {
@@ -57,11 +50,13 @@ export interface ChatRoom {
 export interface ChatGroup {
   id: string
   name: string
-  description: string
-  members: string[]
+  description?: string
   createdBy: string
   createdAt: number
-  blockedMembers: string[]
+  updatedAt: number
+  members: string[]
+  admins?: string[] | { [key: string]: boolean }
+  blockedMembers?: string[]
 }
 
 export interface ChatFolder {
