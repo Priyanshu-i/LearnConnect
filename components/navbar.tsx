@@ -14,9 +14,47 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Bookmark, LogOut, MessageSquare, User } from "lucide-react"
 import { ThemeToggle } from "./theme-toggle"
+import { useEffect, useState } from "react"
+import { auth, db } from "@/lib/firebase"
+import { doc, getDoc } from "firebase/firestore"
+import { useRouter } from "next/navigation"
 
 export function Navbar() {
-  const { user, signIn, signOut } = useAuth()
+  const { signIn, signOut } = useAuth()
+  const [userData, setUserData] = useState<any>(null)
+  const [user, setUser] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const router = useRouter()
+
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        setUser(user)
+        // Fetch user data from Firestore
+        const userDoc = await getDoc(doc(db, "users", user.uid))
+        if (userDoc.exists()) {
+          setUserData(userDoc.data())
+        }
+      } else {
+        router.replace("/login")
+      }
+      setLoading(false)
+    })
+
+    return () => unsubscribe()
+  }, [router])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
+      </div>
+    )
+  }
+
+  // Get display name and photo URL with proper fallbacks
+  const displayName = userData?.displayName || user?.displayName || "User"
+  const photoURL = userData?.photoURL || user?.photoURL || ""
 
   return (
     <nav className="border-b bg-background">
@@ -45,12 +83,12 @@ export function Navbar() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Avatar className="cursor-pointer">
-                    <AvatarImage src={user.photoURL || ""} alt={user.displayName || "User"} />
-                    <AvatarFallback>{user.displayName?.charAt(0) || "U"}</AvatarFallback>
+                    <AvatarImage src={photoURL || "/placeholder.svg"} alt={displayName} />
+                    <AvatarFallback>{displayName.charAt(0).toUpperCase()}</AvatarFallback>
                   </Avatar>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>{user.displayName}</DropdownMenuLabel>
+                  <DropdownMenuLabel>{displayName}</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
                     <Link href="/profile" className="cursor-pointer flex items-center">
