@@ -1,5 +1,18 @@
 "use client"
 
+/*
+
+            function removeUndefined(obj: Record<string, any>) {
+                return Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined));
+            }
+
+            await setDoc(doc(db, "users", userCredential.user.uid), {
+                ...removeUndefined(userData),
+                uid: userCredential.user.uid,
+            });
+
+            
+*/
 import { useEffect, useState } from "react"
 import { collection, query, orderBy, limit, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebase"
