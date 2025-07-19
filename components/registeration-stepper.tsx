@@ -60,7 +60,7 @@ export function RegistrationStepper() {
     website: "",
     interests: [],
     photoURL: "",
-    isEmailVerified: false,
+    isEmailVerified: true,
     createdAt: new Date().toISOString(),
   })
 
