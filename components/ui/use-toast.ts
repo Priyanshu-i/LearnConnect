@@ -1,133 +1,237 @@
 "use client"
 
-// Adapted from shadcn/ui toast
-import { useState, useEffect } from "react"
+// Inspired by react-hot-toast library
+import * as React from "react"
 
-const TOAST_TIMEOUT = 5000
+import type {
+  ToastActionElement,
+  ToastProps,
+} from "@/components/ui/toast"
 
-export function useToast() {
-  const [toasts, setToasts] = useState([])
+const TOAST_LIMIT = 1
+const TOAST_REMOVE_DELAY = 1000000
 
-  interface ToastOptions {
-    title: string
-    description: string
-    variant?: "default" | "destructive"
-  }
-  
-  const toast = ({ title, description, variant = "default" }: ToastOptions) => {
-    const id = Math.random().toString(36).substring(2, 9)
-    setToasts((prev) => [...prev, { id, title, description, variant }])
-
-    return id
-  }
-
-  const dismiss = (id) => {
-    setToasts((prev) => prev.filter((toast) => toast.id !== id))
-  }
-
-  useEffect(() => {
-    if (toasts.length > 0) {
-      const timer = setTimeout(() => {
-        setToasts((prev) => prev.slice(1))
-      }, TOAST_TIMEOUT)
-
-      return () => clearTimeout(timer)
-    }
-  }, [toasts])
-
-  // Simple toast UI renderer
-  useEffect(() => {
-    const renderToast = () => {
-      // Remove existing toast container if it exists
-      let container = document.getElementById("toast-container")
-      if (container) {
-        document.body.removeChild(container)
-      }
-
-      // If no toasts, don't create container
-      if (toasts.length === 0) return
-
-      // Create new container
-      container = document.createElement("div")
-      container.id = "toast-container"
-      container.style.position = "fixed"
-      container.style.bottom = "20px"
-      container.style.right = "20px"
-      container.style.zIndex = "9999"
-      container.style.display = "flex"
-      container.style.flexDirection = "column"
-      container.style.gap = "10px"
-
-      // Add toasts to container
-      toasts.forEach((toast) => {
-        const toastElement = document.createElement("div")
-        toastElement.style.padding = "16px"
-        toastElement.style.borderRadius = "8px"
-        toastElement.style.width = "300px"
-        toastElement.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.15)"
-        toastElement.style.display = "flex"
-        toastElement.style.flexDirection = "column"
-        toastElement.style.gap = "4px"
-        toastElement.style.animation = "slideIn 0.3s ease"
-
-        // Set background color based on variant
-        if (toast.variant === "destructive") {
-          toastElement.style.backgroundColor = "#f44336" // red
-          toastElement.style.color = "white"
-        } else {
-          toastElement.style.backgroundColor = "white"
-          toastElement.style.color = "black"
-        }
-
-        // Add toast content
-        const titleElement = document.createElement("div")
-        titleElement.textContent = toast.title
-        titleElement.style.fontWeight = "bold"
-
-        const descElement = document.createElement("div")
-        descElement.textContent = toast.description
-        descElement.style.fontSize = "14px"
-
-        // Close button
-        const closeButton = document.createElement("button")
-        closeButton.textContent = "×"
-        closeButton.style.position = "absolute"
-        closeButton.style.top = "8px"
-        closeButton.style.right = "8px"
-        closeButton.style.background = "none"
-        closeButton.style.border = "none"
-        closeButton.style.cursor = "pointer"
-        closeButton.style.fontSize = "18px"
-        closeButton.onclick = () => dismiss(toast.id)
-
-        toastElement.appendChild(titleElement)
-        toastElement.appendChild(descElement)
-        toastElement.appendChild(closeButton)
-        container.appendChild(toastElement)
-      })
-
-      document.body.appendChild(container)
-
-      // Add animation style
-      const style = document.createElement("style")
-      style.textContent = `
-        @keyframes slideIn {
-          from { transform: translateX(100%); opacity: 0; }
-          to { transform: translateX(0); opacity: 1; }
-        }
-      `
-      document.head.appendChild(style)
-    }
-
-    renderToast()
-
-    return () => {
-      const container = document.getElementById("toast-container")
-      if (container) {
-        document.body.removeChild(container)
-      }
-    }
-  }, [toasts])
-
-  return { toast, dismiss }
+type ToasterToast = ToastProps & {
+  id: string
+  title?: React.ReactNode
+  description?: React.ReactNode
+  action?: ToastActionElement
 }
+
+const actionTypes = {
+  ADD_TOAST: "ADD_TOAST",
+  UPDATE_TOAST: "UPDATE_TOAST",
+  DISMISS_TOAST: "DISMISS_TOAST",
+  REMOVE_TOAST: "REMOVE_TOAST",
+} as const
+
+let count = 0
+
+function genId() {
+  count = (count + 1) % Number.MAX_SAFE_INTEGER
+  return count.toString()
+}
+
+type ActionType = typeof actionTypes
+
+type Action =
+  | {
+      type: ActionType["ADD_TOAST"]
+      toast: ToasterToast
+    }
+  | {
+      type: ActionType["UPDATE_TOAST"]
+      toast: Partial<ToasterToast>
+    }
+  | {
+      type: ActionType["DISMISS_TOAST"]
+      toastId?: ToasterToast["id"]
+    }
+  | {
+      type: ActionType["REMOVE_TOAST"]
+      toastId?: ToasterToast["id"]
+    }
+
+interface State {
+  toasts: ToasterToast[]
+}
+
+const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
+
+
+const addToRemoveQueue = (toastId: string) => {
+  if (toastTimeouts.has(toastId)) {
+    return
+
+  }
+
+
+
+
+
+  const timeout = setTimeout(() => {
+    toastTimeouts.delete(toastId)
+    dispatch({
+      type: "REMOVE_TOAST",
+      toastId: toastId,
+    })
+  }, TOAST_REMOVE_DELAY)
+
+  toastTimeouts.set(toastId, timeout)
+}
+
+export const reducer = (state: State, action: Action): State => {
+  switch (action.type) {
+    case "ADD_TOAST":
+      return {
+        ...state,
+        toasts: [action.toast, ...state.toasts].slice(0, TOAST_LIMIT),
+      }
+
+    case "UPDATE_TOAST":
+      return {
+        ...state,
+        toasts: state.toasts.map((t) =>
+          t.id === action.toast.id ? { ...t, ...action.toast } : t
+        ),
+      }
+
+    case "DISMISS_TOAST": {
+      const { toastId } = action
+
+      // ! Side effects ! - This could be extracted into a dismissToast() action,
+      // but I'll keep it here for simplicity
+      if (toastId) {
+        addToRemoveQueue(toastId)
+      } else {
+        state.toasts.forEach((toast) => {
+          addToRemoveQueue(toast.id)
+        })
+      }
+
+      return {
+        ...state,
+        toasts: state.toasts.map((t) =>
+          t.id === toastId || toastId === undefined
+            ? {
+                ...t,
+                open: false,
+              }
+            : t
+        ),
+      }
+    }
+    case "REMOVE_TOAST":
+      if (action.toastId === undefined) {
+        return {
+          ...state,
+          toasts: [],
+        }
+      }
+      return {
+        ...state,
+        toasts: state.toasts.filter((t) => t.id !== action.toastId),
+      }
+  }
+}
+
+const listeners: Array<(state: State) => void> = []
+
+let memoryState: State = { toasts: [] }
+
+function dispatch(action: Action) {
+  memoryState = reducer(memoryState, action)
+  listeners.forEach((listener) => {
+    listener(memoryState)
+  })
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+type Toast = Omit<ToasterToast, "id">
+
+function toast({ ...props }: Toast) {
+  const id = genId()
+
+  const update = (props: ToasterToast) =>
+    dispatch({
+      type: "UPDATE_TOAST",
+      toast: { ...props, id },
+    })
+  const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id })
+
+  dispatch({
+    type: "ADD_TOAST",
+    toast: {
+      ...props,
+      id,
+      open: true,
+      onOpenChange: (open) => {
+        if (!open) dismiss()
+      },
+    },
+  })
+
+  return {
+    id: id,
+    dismiss,
+    update,
+  }
+}
+
+
+
+
+
+
+
+
+
+
+function useToast() {
+  const [state, setState] = React.useState<State>(memoryState)
+
+  React.useEffect(() => {
+    listeners.push(setState)
+    return () => {
+      const index = listeners.indexOf(setState)
+      if (index > -1) {
+        listeners.splice(index, 1)
+      }
+    }
+  }, [state])
+
+  return {
+    ...state,
+    toast,
+    dismiss: (toastId?: string) => dispatch({ type: "DISMISS_TOAST", toastId }),
+  }
+}
+
+export { useToast, toast }
